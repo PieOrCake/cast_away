@@ -426,6 +426,7 @@ static bool g_ShowQAIcon     = true;
 static MapPanel g_MapPanel;
 
 static int  g_SelectedFish    = -1;
+static int  g_LastDetailFish  =  0;  // persists last viewed fish; never goes back to -1
 static char g_SearchBuf[128]  = {};
 static int  g_FilterBait      = 0;
 static int  g_FilterTime      = 0;
@@ -888,6 +889,20 @@ static void CheckNearbyHoles(int mapId, float gx, float gz) {
 }
 
 // ---------------------------------------------------------------------------
+// Rarity colour helper (GW2 standard palette)
+// ---------------------------------------------------------------------------
+static ImVec4 RarityColor(const char* rarity) {
+    if (!rarity)                         return {0.87f, 0.87f, 0.87f, 1.f};
+    if (strcmp(rarity, "Fine")       ==0) return {0.384f, 0.644f, 0.855f, 1.f};
+    if (strcmp(rarity, "Masterwork") ==0) return {0.102f, 0.576f, 0.024f, 1.f};
+    if (strcmp(rarity, "Rare")       ==0) return {0.988f, 0.816f, 0.043f, 1.f};
+    if (strcmp(rarity, "Exotic")     ==0) return {0.788f, 0.494f, 0.063f, 1.f};
+    if (strcmp(rarity, "Ascended")   ==0) return {0.984f, 0.243f, 0.553f, 1.f};
+    if (strcmp(rarity, "Legendary")  ==0) return {0.659f, 0.341f, 0.898f, 1.f};
+    return {0.87f, 0.87f, 0.87f, 1.f};
+}
+
+// ---------------------------------------------------------------------------
 // ImGui primitive draw helpers
 // ---------------------------------------------------------------------------
 static void DrawHeart(ImDrawList* dl, ImVec2 c, float s, ImU32 col, bool filled) {
@@ -973,8 +988,9 @@ static void RenderFishDetails(int fishIdx) {
     if (fishIdx < 0 || fishIdx >= FISH_COUNT) return;
     const Fish& f = FISH_TABLE[fishIdx];
 
-    // Request TP prices
-    g_Prices.Request(f.itemId, f.filletItemId);
+    // Only fetch prices for fillet/contents — fish themselves are not tradeable
+    if (f.filletItemId != 0)
+        g_Prices.Request(f.filletItemId);
 
     // Fish icon 48x48
     if (f.itemId != 0) {
@@ -989,25 +1005,22 @@ static void RenderFishDetails(int fishIdx) {
     }
 
     ImGui::BeginGroup();
-    ImGui::TextColored({1.f, 0.85f, 0.3f, 1.f}, "%s", f.name);
+    // Name coloured by rarity
+    ImGui::TextColored(RarityColor(GetFishRarity(f.itemId)), "%s", f.name);
     if (f.region && f.region[0])
         ImGui::TextDisabled("%s", f.region);
     ImGui::EndGroup();
 
     ImGui::Separator();
 
-    // Helper lambda for detail rows
     auto row = [](const char* label, const char* value) {
         ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(0);
-        ImGui::TextDisabled("%s", label);
-        ImGui::TableSetColumnIndex(1);
-        ImGui::TextUnformatted(value ? value : "-");
+        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", label);
+        ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(value ? value : "-");
     };
 
     if (ImGui::BeginTable("##FishInfo", 2,
-            ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg,
-            {-1.f, 0.f})) {
+            ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg, {-1.f, 0.f})) {
         ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 80.f);
         ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
@@ -1017,71 +1030,49 @@ static void RenderFishDetails(int fishIdx) {
         row("Time",       TimeOfDayName(f.time));
         row("Collection", f.collection ? f.collection : "-");
         if (g_AchTracker.hoarded) {
-            row("Caught", g_AchTracker.IsCaught(g_SelectedFish) ? "Yes" : "No");
+            row("Caught", g_AchTracker.IsCaught(fishIdx) ? "Yes" : "No");
         } else {
             row("Caught", "?");
         }
-
         if (f.masteryRequired && f.masteryRequired[0]) {
             ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::TextDisabled("Mastery");
+            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Mastery");
             ImGui::TableSetColumnIndex(1);
             ImGui::TextColored({1.f, 0.6f, 0.2f, 1.f}, "%s", f.masteryRequired);
         }
-
         ImGui::EndTable();
     }
 
-    // Fillet section
+    // Contents / fillet section
     if (f.filletItemId != 0) {
         ImGui::Spacing();
-        ImGui::TextDisabled("Fillet");
-        if (f.filletIconUrl && f.filletIconUrl[0]) {
-            ImGui::SameLine();
-            Texture_t* ft = CastAway::IconManager::GetIcon(f.filletItemId);
-            if (ft && ft->Resource) {
-                ImGui::Image((ImTextureID)(uintptr_t)ft->Resource, {16.f, 16.f});
-            } else {
-                CastAway::IconManager::RequestIcon(f.filletItemId, f.filletIconUrl);
-                ImGui::Dummy({16.f, 16.f});
-            }
-            if (f.filletName) {
-                ImGui::SameLine();
-                ImGui::TextUnformatted(f.filletName);
-            }
-        } else if (f.filletName) {
-            ImGui::SameLine();
-            ImGui::TextUnformatted(f.filletName);
-        }
+        ImGui::Separator();
 
+        // Icon + name on one line
+        Texture_t* ft = CastAway::IconManager::GetIcon(f.filletItemId);
+        if (ft && ft->Resource)
+            ImGui::Image((ImTextureID)(uintptr_t)ft->Resource, {16.f, 16.f});
+        else {
+            if (f.filletIconUrl && f.filletIconUrl[0])
+                CastAway::IconManager::RequestIcon(f.filletItemId, f.filletIconUrl);
+            ImGui::Dummy({16.f, 16.f});
+        }
+        ImGui::SameLine();
+        ImGui::TextUnformatted(f.filletName ? f.filletName : "Contents");
+
+        // TP price for the fillet
         const PriceInfo* fp = g_Prices.Get(f.filletItemId);
         if (fp && fp->fetched) {
             if (fp->tradeable) {
-                ImGui::TextDisabled("  Buy:  %s", FormatCoins(fp->buy_price).c_str());
-                ImGui::TextDisabled("  Sell: %s", FormatCoins(fp->sell_price).c_str());
+                ImGui::TextDisabled("  Buy:  "); ImGui::SameLine();
+                ImGui::Text("%s", FormatCoins(fp->buy_price).c_str());
+                ImGui::TextDisabled("  Sell: "); ImGui::SameLine();
+                ImGui::Text("%s", FormatCoins(fp->sell_price).c_str());
             } else {
                 ImGui::TextDisabled("  Not tradeable");
             }
-        } else {
-            ImGui::TextDisabled("  Loading prices...");
-        }
-    }
-
-    // Fish TP prices
-    if (f.itemId != 0) {
-        ImGui::Spacing();
-        ImGui::TextDisabled("Trading Post");
-        const PriceInfo* pp = g_Prices.Get(f.itemId);
-        if (pp && pp->fetched) {
-            if (pp->tradeable) {
-                ImGui::TextDisabled("  Buy:  %s", FormatCoins(pp->buy_price).c_str());
-                ImGui::TextDisabled("  Sell: %s", FormatCoins(pp->sell_price).c_str());
-            } else {
-                ImGui::TextDisabled("  Not tradeable");
-            }
-        } else {
-            ImGui::TextDisabled("  Loading prices...");
+        } else if (f.filletItemId != 0) {
+            ImGui::TextDisabled("  Fetching...");
         }
     }
 
@@ -1252,8 +1243,8 @@ void AddonRender() {
             ImGui::Spacing();
 
             // Split layout
-            float detailsW = (g_SelectedFish >= 0) ? 260.f : 0.f;
-            float tableW   = contentWidth - detailsW - (detailsW > 0 ? 8.f : 0.f);
+            const float detailsW = 260.f;
+            float tableW = contentWidth - detailsW - 8.f;
             float tableH   = ImGui::GetContentRegionAvail().y - 4.f;
 
             ImGuiTableFlags tflags =
@@ -1323,15 +1314,19 @@ void AddonRender() {
                                       IM_COL32(110, 110, 110, 160), false);
                     }
 
-                    // Fish name (selectable spanning remaining columns)
+                    // Fish name (selectable, coloured by rarity)
                     ImGui::TableSetColumnIndex(2);
                     {
                         char selId[128];
                         snprintf(selId, sizeof(selId), "%s##row%d", f.name, idx);
+                        ImGui::PushStyleColor(ImGuiCol_Text,
+                            RarityColor(GetFishRarity(f.itemId)));
                         if (ImGui::Selectable(selId, g_SelectedFish == idx,
                                 ImGuiSelectableFlags_SpanAllColumns)) {
-                            g_SelectedFish = (g_SelectedFish == idx) ? -1 : idx;
+                            g_SelectedFish   = idx;
+                            g_LastDetailFish = idx;
                         }
+                        ImGui::PopStyleColor();
                     }
 
                     ImGui::TableSetColumnIndex(3);
@@ -1349,15 +1344,12 @@ void AddonRender() {
                 ImGui::EndTable();
             }
 
-            // Details panel
-            if (g_SelectedFish >= 0 && detailsW > 0) {
-                ImGui::SameLine();
-                if (ImGui::BeginChild("##FishDetailsPanel", {detailsW, tableH},
-                                      true)) {
-                    RenderFishDetails(g_SelectedFish);
-                }
-                ImGui::EndChild();
+            // Details panel — always visible, shows last viewed fish
+            ImGui::SameLine();
+            if (ImGui::BeginChild("##FishDetailsPanel", {detailsW, tableH}, true)) {
+                RenderFishDetails(g_LastDetailFish);
             }
+            ImGui::EndChild();
 
             ImGui::EndTabItem();
         }
@@ -1402,8 +1394,9 @@ void AddonRender() {
                         snprintf(selId, sizeof(selId), "%s##frow%d", f.name, i);
                         if (ImGui::Selectable(selId, g_SelectedFish == i,
                                 ImGuiSelectableFlags_SpanAllColumns)) {
-                            g_SelectedFish = (g_SelectedFish == i) ? -1 : i;
-                            if (g_SelectedFish >= 0) g_SwitchToDatabase = true;
+                            g_SelectedFish   = i;
+                            g_LastDetailFish = i;
+                            g_SwitchToDatabase = true;
                         }
                     }
 
@@ -1502,6 +1495,7 @@ void AddonRender() {
                                      f.name, BAIT_NAMES[(int)f.bait], TimeOfDayName(f.time), fi);
                             if (ImGui::Selectable(label, false)) {
                                 g_SelectedFish     = fi;
+                                g_LastDetailFish   = fi;
                                 g_SwitchToDatabase = true;
                             }
                         }
