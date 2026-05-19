@@ -532,6 +532,53 @@ static void CheckNearbyHoles(int mapId, float gx, float gz) {
 }
 
 // ---------------------------------------------------------------------------
+// Bait shopping list (Task 15)
+// ---------------------------------------------------------------------------
+static void RenderBaitShoppingList() {
+    if (!g_AchTracker.hoarded) {
+        ImGui::TextDisabled("Requires Hoard & Seek for missing fish data.");
+        return;
+    }
+    std::unordered_map<int, int> baitCount;
+    for (int i = 0; i < FISH_COUNT; ++i) {
+        if (g_AchTracker.IsCaught(i)) continue;
+        baitCount[(int)FISH_TABLE[i].bait]++;
+    }
+    if (baitCount.empty()) {
+        ImGui::TextColored({0.3f,0.9f,0.3f,1.f}, "All fish caught!");
+        return;
+    }
+    if (ImGui::BeginTable("BaitList", 2,
+        ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Bait", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Fish needed", ImGuiTableColumnFlags_WidthFixed, 80.f);
+        ImGui::TableHeadersRow();
+        for (int b = 0; b < BAIT_COUNT; ++b) {
+            auto it = baitCount.find(b);
+            if (it == baitCount.end()) continue;
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(BAIT_NAMES[b]);
+            ImGui::TableSetColumnIndex(1); ImGui::Text("%d", it->second);
+        }
+        ImGui::EndTable();
+    }
+    if (ImGui::Button("Copy as text")) {
+        std::string out = "Bait needed for missing fish:\n";
+        for (int b = 0; b < BAIT_COUNT; ++b) {
+            auto it = baitCount.find(b);
+            if (it == baitCount.end()) continue;
+            out += "  " + std::string(BAIT_NAMES[b]) + " x" + std::to_string(it->second) + "\n";
+        }
+        if (OpenClipboard(nullptr)) {
+            EmptyClipboard();
+            HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, out.size()+1);
+            if (h) { memcpy(GlobalLock(h), out.c_str(), out.size()+1); GlobalUnlock(h); SetClipboardData(CF_TEXT, h); }
+            CloseClipboard();
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Fish details panel
 // ---------------------------------------------------------------------------
 static void RenderFishDetails(int fishIdx) {
@@ -1014,9 +1061,85 @@ void AddonRender() {
             ImGui::EndTabItem();
         }
 
-        // ===== ACHIEVEMENTS TAB (stub) =====
+        // ===== ACHIEVEMENTS TAB =====
         if (ImGui::BeginTabItem("Achievements")) {
-            ImGui::TextDisabled("Achievement tracking available in a future update.");
+            if (!g_AchTracker.hoarded) {
+                ImGui::TextWrapped("Requires the Hoard & Seek addon to be installed and configured.");
+                ImGui::TextDisabled("Install Hoard & Seek, then restart GW2.");
+            } else {
+                for (int ci = 0; ci < COLLECTION_COUNT; ++ci) {
+                    const FishingCollection& col = COLLECTION_TABLE[ci];
+                    if (col.achievementId == 0) continue;
+                    const CollectionState* st = g_AchTracker.GetCollection(col.achievementId);
+                    if (!st) continue;
+
+                    // Achievement icon (20x20)
+                    if (col.iconUrl && col.iconUrl[0]) {
+                        uint32_t iconKey = col.achievementId + 9000000u;
+                        Texture_t* ach_icon = CastAway::IconManager::GetIcon(iconKey);
+                        if (ach_icon && ach_icon->Resource)
+                            ImGui::Image(ach_icon->Resource, {20, 20});
+                        else {
+                            CastAway::IconManager::RequestIcon(iconKey, col.iconUrl);
+                            ImGui::Dummy({20, 20});
+                        }
+                        ImGui::SameLine();
+                    }
+
+                    char header[128];
+                    snprintf(header, sizeof(header), "%s  %u/%u##col%d",
+                             col.name, st->caughtCount, st->totalFish, ci);
+                    bool open = ImGui::CollapsingHeader(header);
+
+                    // Progress bar — render after CollapsingHeader
+                    float frac = st->totalFish > 0 ? (float)st->caughtCount / st->totalFish : 0.f;
+                    ImGui::SameLine(ImGui::GetContentRegionAvail().x - 160.f);
+                    ImGui::SetNextItemWidth(150.f);
+                    ImGui::ProgressBar(frac, {150.f, ImGui::GetTextLineHeight()});
+
+                    if (!open) continue;
+
+                    ImGui::Indent();
+                    for (int fi = 0; fi < FISH_COUNT; ++fi) {
+                        const Fish& f = FISH_TABLE[fi];
+                        if (f.achievementId != col.achievementId) continue;
+
+                        bool caught = st->done || (st->bitsKnown && fi < FISH_COUNT &&
+                                      f.bitIndex < 64 && st->caughtBits[f.bitIndex]);
+
+                        // Fish icon (16x16)
+                        if (f.itemId != 0) {
+                            Texture_t* fish_icon = CastAway::IconManager::GetIcon(f.itemId);
+                            if (fish_icon && fish_icon->Resource)
+                                ImGui::Image(fish_icon->Resource, {16, 16});
+                            else {
+                                CastAway::IconManager::RequestIcon(f.itemId, f.iconUrl ? f.iconUrl : "");
+                                ImGui::Dummy({16, 16});
+                            }
+                            ImGui::SameLine();
+                        }
+
+                        if (caught) {
+                            ImGui::TextDisabled("\xe2\x9c\x93  %s", f.name);
+                        } else {
+                            // Clickable — select fish and switch to Database tab
+                            char label[128];
+                            snprintf(label, sizeof(label), "\xe2\x9c\x97  %s  (%s / %s)##achfish%d",
+                                     f.name, BAIT_NAMES[(int)f.bait], TimeOfDayName(f.time), fi);
+                            if (ImGui::Selectable(label, false)) {
+                                g_SelectedFish     = fi;
+                                g_SwitchToDatabase = true;
+                            }
+                        }
+                    }
+                    ImGui::Unindent();
+                }
+                // Bait shopping list collapsible section (Task 15)
+                ImGui::Spacing();
+                if (ImGui::CollapsingHeader("Bait Shopping List")) {
+                    RenderBaitShoppingList();
+                }
+            }
             ImGui::EndTabItem();
         }
 
