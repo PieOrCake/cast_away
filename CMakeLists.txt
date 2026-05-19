@@ -35,6 +35,7 @@ set(IMGUI_SOURCES
 set(SOURCES
     src/dllmain.cpp
     src/FishData.cpp
+    src/FishRarity.cpp
     src/TileCache.cpp
     src/MapPanel.cpp
     src/IconManager.cpp

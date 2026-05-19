@@ -91,6 +91,8 @@ extern const int               HOLE_COUNT;
 extern const FishingCollection COLLECTION_TABLE[];
 extern const int               COLLECTION_COUNT;
 
+const char* GetFishRarity(uint32_t itemId);
+
 inline const char* TimeOfDayName(TimeOfDay t) {
     switch (t) {
         case TimeOfDay::Dawn:  return "Dawn";
