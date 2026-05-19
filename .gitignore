@@ -1,0 +1,5 @@
+build/
+*.dll
+*.lib
+handover.md
+CLAUDE.md
