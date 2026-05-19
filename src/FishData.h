@@ -93,10 +93,10 @@ extern const int               COLLECTION_COUNT;
 
 inline const char* TimeOfDayName(TimeOfDay t) {
     switch (t) {
-        case TimeOfDay::Dawn:  return "Dawn/Dusk";
-        case TimeOfDay::Day:   return "Daytime";
-        case TimeOfDay::Dusk:  return "Dusk/Dawn";
-        case TimeOfDay::Night: return "Nighttime";
+        case TimeOfDay::Dawn:  return "Dawn";
+        case TimeOfDay::Day:   return "Day";
+        case TimeOfDay::Dusk:  return "Dusk";
+        case TimeOfDay::Night: return "Night";
         default:               return "Any";
     }
 }
