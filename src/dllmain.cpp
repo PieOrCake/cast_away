@@ -186,8 +186,8 @@ static bool FishMatchesFilter(int fishIdx) {
     // Map filter
     if (!g_FilterMap.empty() && g_FilterMap != std::string(f.map ? f.map : "")) return false;
 
-    // Missing only — stubbed (AchievementTracker not wired yet)
-    (void)g_MissingOnly;
+    // Missing only — hide fish already caught
+    if (g_MissingOnly && g_AchTracker.hoarded && g_AchTracker.IsCaught(fishIdx)) return false;
 
     return true;
 }
@@ -581,8 +581,11 @@ static void RenderFishDetails(int fishIdx) {
         row("Bait",       BAIT_NAMES[(int)f.bait]);
         row("Time",       TimeOfDayName(f.time));
         row("Collection", f.collection ? f.collection : "-");
-        // Caught: stubbed with em-dash
-        row("Caught",     "\xe2\x80\x94");
+        if (g_AchTracker.hoarded) {
+            row("Caught", g_AchTracker.IsCaught(g_SelectedFish) ? "\xe2\x9c\x93" : "\xe2\x9c\x97");
+        } else {
+            row("Caught", "\xe2\x80\x94");
+        }
 
         if (f.masteryRequired && f.masteryRequired[0]) {
             ImGui::TableNextRow();
@@ -714,6 +717,7 @@ void AddonRender() {
     }
 
     // --- Per-frame work ---
+    g_AchTracker.FlushPendingQuery();
     g_MapPanel.ProcessReadyQueue();
     CastAway::IconManager::Tick();
 
@@ -913,7 +917,15 @@ void AddonRender() {
                     ImGui::TextUnformatted(WaterTypeName(f.water));
 
                     ImGui::TableSetColumnIndex(7);
-                    ImGui::TextDisabled("\xe2\x80\x94");
+                    if (g_AchTracker.hoarded) {
+                        if (g_AchTracker.IsCaught(idx)) {
+                            ImGui::TextColored({0.4f, 1.f, 0.4f, 1.f}, "\xe2\x9c\x93"); // ✓
+                        } else {
+                            ImGui::TextDisabled("\xe2\x9c\x97"); // ✗
+                        }
+                    } else {
+                        ImGui::TextDisabled("\xe2\x80\x94"); // —
+                    }
                 }
                 ImGui::EndTable();
             }
@@ -1072,6 +1084,7 @@ void AddonLoad(AddonAPI_t* aApi) {
         (void(*)(void*, void*))APIDefs->ImguiFree);
 
     CastAway::IconManager::Initialize(APIDefs);
+    g_AchTracker.Init(APIDefs);
 
     std::string dataDir = std::string(APIDefs->Paths_GetAddonDirectory("cast_away"));
     std::filesystem::create_directories(dataDir);
@@ -1109,6 +1122,7 @@ void AddonUnload() {
     APIDefs->GUI_Deregister(AddonOptions);
     APIDefs->GUI_Deregister(AddonRender);
 
+    g_AchTracker.Shutdown();
     g_MapPanel.Shutdown();
     CastAway::IconManager::Shutdown();
 
