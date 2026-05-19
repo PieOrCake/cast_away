@@ -630,7 +630,7 @@ static void RenderDayNightBar(float windowWidth) {
 
     // Right label: "→ NextPhase in Xm XXs"
     char untilLabel[48];
-    snprintf(untilLabel, sizeof(untilLabel), "\xe2\x86\x92 %s in %um %02us",
+    snprintf(untilLabel, sizeof(untilLabel), "%s in %um %02us",
              TimeOfDayName(GetNextPhase()), secLeft / 60, secLeft % 60);
     ImVec2 tsz = ImGui::CalcTextSize(untilLabel);
     dl->AddText({origin.x + windowWidth - tsz.x - 4.f, origin.y + 4.f},
@@ -821,7 +821,7 @@ static void CheckTimeWindowNotifications() {
 
         char msg[128], sub[128];
         snprintf(msg, sizeof(msg), "%s window starting soon!", TimeOfDayName(f.time));
-        snprintf(sub, sizeof(sub), "%s \xe2\x80\x94 %um %02us", f.name, secs / 60, secs % 60);
+        snprintf(sub, sizeof(sub), "%s - %um %02us", f.name, secs / 60, secs % 60);
         PushToast(msg, sub);
     }
 }
@@ -885,6 +885,38 @@ static void CheckNearbyHoles(int mapId, float gx, float gz) {
         ImGui::End();
         break; // Show only the nearest hole
     }
+}
+
+// ---------------------------------------------------------------------------
+// ImGui primitive draw helpers
+// ---------------------------------------------------------------------------
+static void DrawHeart(ImDrawList* dl, ImVec2 c, float s, ImU32 col, bool filled) {
+    const float r  = s * 0.27f;
+    const float bx = s * 0.26f;
+    const float by = c.y - s * 0.06f;
+    const float sx = c.x - s * 0.48f;
+    const float sy = by + r * 0.25f;
+    const float px = c.x;
+    const float py = c.y + s * 0.44f;
+    if (filled) {
+        dl->AddCircleFilled({c.x - bx, by}, r, col, 12);
+        dl->AddCircleFilled({c.x + bx, by}, r, col, 12);
+        dl->AddRectFilled({c.x - bx, by - r * 0.6f}, {c.x + bx, by + r * 0.4f}, col);
+        ImVec2 tri[3] = {{sx, sy}, {c.x + s * 0.48f, sy}, {px, py}};
+        dl->AddTriangleFilled(tri[0], tri[1], tri[2], col);
+    } else {
+        dl->AddCircle({c.x - bx, by}, r, col, 12, 1.3f);
+        dl->AddCircle({c.x + bx, by}, r, col, 12, 1.3f);
+        dl->AddLine({sx, sy}, {px, py}, col, 1.3f);
+        dl->AddLine({c.x + s * 0.48f, sy}, {px, py}, col, 1.3f);
+    }
+}
+
+static void DrawCheckmark(ImDrawList* dl, ImVec2 c, float s, ImU32 col) {
+    dl->AddLine({c.x - s * 0.32f, c.y + s * 0.04f},
+                {c.x - s * 0.06f, c.y + s * 0.32f}, col, 1.8f);
+    dl->AddLine({c.x - s * 0.06f, c.y + s * 0.32f},
+                {c.x + s * 0.38f, c.y - s * 0.22f}, col, 1.8f);
 }
 
 // ---------------------------------------------------------------------------
@@ -985,9 +1017,9 @@ static void RenderFishDetails(int fishIdx) {
         row("Time",       TimeOfDayName(f.time));
         row("Collection", f.collection ? f.collection : "-");
         if (g_AchTracker.hoarded) {
-            row("Caught", g_AchTracker.IsCaught(g_SelectedFish) ? "\xe2\x9c\x93" : "\xe2\x9c\x97");
+            row("Caught", g_AchTracker.IsCaught(g_SelectedFish) ? "Yes" : "No");
         } else {
-            row("Caught", "\xe2\x80\x94");
+            row("Caught", "?");
         }
 
         if (f.masteryRequired && f.masteryRequired[0]) {
@@ -1277,17 +1309,18 @@ void AddonRender() {
                     ImGui::TableSetColumnIndex(1);
                     {
                         bool fav = IsFavourite(f.name);
-                        char starId[64];
-                        snprintf(starId, sizeof(starId),
-                                 "%s##star%d",
-                                 fav ? "\xe2\x98\x85" : "\xe2\x98\x86", idx);
-                        ImGui::PushStyleColor(ImGuiCol_Button,        {0,0,0,0});
-                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1.f,0.9f,0.2f,0.2f});
-                        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  {1.f,0.9f,0.2f,0.4f});
-                        if (fav) ImGui::PushStyleColor(ImGuiCol_Text, {1.f,0.85f,0.1f,1.f});
-                        if (ImGui::SmallButton(starId)) ToggleFavourite(f.name);
-                        if (fav) ImGui::PopStyleColor();
-                        ImGui::PopStyleColor(3);
+                        char btnId[32];
+                        snprintf(btnId, sizeof(btnId), "##heart%d", idx);
+                        ImVec2 pos = ImGui::GetCursorScreenPos();
+                        ImGui::InvisibleButton(btnId, {18.f, 18.f});
+                        if (ImGui::IsItemClicked()) ToggleFavourite(f.name);
+                        ImVec2 hc = {pos.x + 9.f, pos.y + 9.f};
+                        if (fav)
+                            DrawHeart(ImGui::GetWindowDrawList(), hc, 11.f,
+                                      IM_COL32(210, 50, 50, 255), true);
+                        else
+                            DrawHeart(ImGui::GetWindowDrawList(), hc, 11.f,
+                                      IM_COL32(110, 110, 110, 160), false);
                     }
 
                     // Fish name (selectable spanning remaining columns)
@@ -1305,14 +1338,12 @@ void AddonRender() {
                     ImGui::TextUnformatted(f.map ? f.map : "-");
 
                     ImGui::TableSetColumnIndex(4);
-                    if (g_AchTracker.hoarded) {
-                        if (g_AchTracker.IsCaught(idx)) {
-                            ImGui::TextColored({0.4f, 1.f, 0.4f, 1.f}, "\xe2\x9c\x93"); // ✓
-                        } else {
-                            ImGui::TextDisabled("\xe2\x9c\x97"); // ✗
-                        }
-                    } else {
-                        ImGui::TextDisabled("\xe2\x80\x94"); // —
+                    if (g_AchTracker.hoarded && g_AchTracker.IsCaught(idx)) {
+                        ImVec2 cp = ImGui::GetCursorScreenPos();
+                        ImGui::Dummy({16.f, ImGui::GetTextLineHeight()});
+                        DrawCheckmark(ImGui::GetWindowDrawList(),
+                                      {cp.x + 8.f, cp.y + ImGui::GetTextLineHeight() * 0.5f},
+                                      10.f, IM_COL32(80, 210, 80, 255));
                     }
                 }
                 ImGui::EndTable();
@@ -1355,12 +1386,14 @@ void AddonRender() {
 
                     ImGui::TableSetColumnIndex(0);
                     {
-                        char starId[64];
-                        snprintf(starId, sizeof(starId), "\xe2\x98\x85##fstar%d", i);
-                        ImGui::PushStyleColor(ImGuiCol_Button, {0,0,0,0});
-                        ImGui::PushStyleColor(ImGuiCol_Text,   {1.f,0.85f,0.1f,1.f});
-                        if (ImGui::SmallButton(starId)) ToggleFavourite(f.name);
-                        ImGui::PopStyleColor(2);
+                        char btnId[32];
+                        snprintf(btnId, sizeof(btnId), "##fheart%d", i);
+                        ImVec2 pos = ImGui::GetCursorScreenPos();
+                        ImGui::InvisibleButton(btnId, {18.f, 18.f});
+                        if (ImGui::IsItemClicked()) ToggleFavourite(f.name);
+                        DrawHeart(ImGui::GetWindowDrawList(),
+                                  {pos.x + 9.f, pos.y + 9.f},
+                                  11.f, IM_COL32(210, 50, 50, 255), true);
                     }
 
                     ImGui::TableSetColumnIndex(1);
@@ -1453,11 +1486,19 @@ void AddonRender() {
                         }
 
                         if (caught) {
-                            ImGui::TextDisabled("\xe2\x9c\x93  %s", f.name);
+                            // Drawn checkmark + dimmed name
+                            ImVec2 cp = ImGui::GetCursorScreenPos();
+                            float  lh = ImGui::GetTextLineHeight();
+                            ImGui::Dummy({lh, lh});
+                            DrawCheckmark(ImGui::GetWindowDrawList(),
+                                          {cp.x + lh * 0.5f, cp.y + lh * 0.5f},
+                                          lh * 0.55f, IM_COL32(80, 180, 80, 200));
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("%s", f.name);
                         } else {
-                            // Clickable — select fish and switch to Database tab
+                            // Clickable — select fish and jump to Database tab
                             char label[128];
-                            snprintf(label, sizeof(label), "\xe2\x9c\x97  %s  (%s / %s)##achfish%d",
+                            snprintf(label, sizeof(label), "%s  (%s / %s)##achfish%d",
                                      f.name, BAIT_NAMES[(int)f.bait], TimeOfDayName(f.time), fi);
                             if (ImGui::Selectable(label, false)) {
                                 g_SelectedFish     = fi;
