@@ -628,9 +628,10 @@ static void RenderDayNightBar(float windowWidth) {
     dl->AddText({origin.x + 4.f, origin.y + 4.f},
                 IM_COL32(255, 255, 255, 230), timeLabel);
 
-    // Right label: "Xm XXs"
-    char untilLabel[32];
-    snprintf(untilLabel, sizeof(untilLabel), "%um %02us", secLeft / 60, secLeft % 60);
+    // Right label: "→ NextPhase in Xm XXs"
+    char untilLabel[48];
+    snprintf(untilLabel, sizeof(untilLabel), "\xe2\x86\x92 %s in %um %02us",
+             TimeOfDayName(GetNextPhase()), secLeft / 60, secLeft % 60);
     ImVec2 tsz = ImGui::CalcTextSize(untilLabel);
     dl->AddText({origin.x + windowWidth - tsz.x - 4.f, origin.y + 4.f},
                 IM_COL32(255, 255, 255, 200), untilLabel);
@@ -1073,19 +1074,16 @@ static void RebuildSortedFishIndices(const ImGuiTableSortSpecs* sortSpecs) {
     const ImGuiTableColumnSortSpecs& spec = sortSpecs->Specs[0];
     bool asc = (spec.SortDirection == ImGuiSortDirection_Ascending);
 
-    // Column indices: 0=icon, 1=star, 2=Fish, 3=Map, 4=Bait, 5=Time, 6=Water, 7=Caught
+    // Column indices: 0=icon, 1=star, 2=Fish, 3=Map, 4=Caught
     std::sort(g_SortedFishIndices.begin(), g_SortedFishIndices.end(),
         [&](int a, int b) {
             const Fish& fa = FISH_TABLE[a];
             const Fish& fb = FISH_TABLE[b];
             int cmp = 0;
             switch (spec.ColumnIndex) {
-                case 2: cmp = strcmp(fa.name,               fb.name);               break;
-                case 3: cmp = strcmp(fa.map  ? fa.map  : "", fb.map  ? fb.map  : ""); break;
-                case 4: cmp = (int)fa.bait  - (int)fb.bait;                          break;
-                case 5: cmp = (int)fa.time  - (int)fb.time;                          break;
-                case 6: cmp = (int)fa.water - (int)fb.water;                         break;
-                default: cmp = strcmp(fa.name, fb.name);                              break;
+                case 2: cmp = strcmp(fa.name, fb.name);                                break;
+                case 3: cmp = strcmp(fa.map ? fa.map : "", fb.map ? fb.map : "");      break;
+                default: cmp = strcmp(fa.name, fb.name);                               break;
             }
             return asc ? (cmp < 0) : (cmp > 0);
         });
@@ -1233,7 +1231,7 @@ void AddonRender() {
                 ImGuiTableFlags_ScrollY       |
                 ImGuiTableFlags_SizingFixedFit;
 
-            if (ImGui::BeginTable("##FishTable", 8, tflags, {tableW, tableH})) {
+            if (ImGui::BeginTable("##FishTable", 5, tflags, {tableW, tableH})) {
                 ImGui::TableSetupScrollFreeze(0, 1);
                 ImGui::TableSetupColumn("##Icon",  ImGuiTableColumnFlags_NoSort |
                                                    ImGuiTableColumnFlags_WidthFixed, 22.f);
@@ -1242,11 +1240,8 @@ void AddonRender() {
                 ImGui::TableSetupColumn("Fish",    ImGuiTableColumnFlags_DefaultSort |
                                                    ImGuiTableColumnFlags_WidthStretch);
                 ImGui::TableSetupColumn("Map",     ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("Bait",    ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("Time",    ImGuiTableColumnFlags_WidthFixed,  54.f);
-                ImGui::TableSetupColumn("Water",   ImGuiTableColumnFlags_WidthFixed,  72.f);
                 ImGui::TableSetupColumn("Caught",  ImGuiTableColumnFlags_NoSort |
-                                                   ImGuiTableColumnFlags_WidthFixed,  54.f);
+                                                   ImGuiTableColumnFlags_WidthFixed, 54.f);
                 ImGui::TableHeadersRow();
 
                 // Apply sort
@@ -1310,15 +1305,6 @@ void AddonRender() {
                     ImGui::TextUnformatted(f.map ? f.map : "-");
 
                     ImGui::TableSetColumnIndex(4);
-                    ImGui::TextUnformatted(BAIT_NAMES[(int)f.bait]);
-
-                    ImGui::TableSetColumnIndex(5);
-                    ImGui::TextUnformatted(TimeOfDayName(f.time));
-
-                    ImGui::TableSetColumnIndex(6);
-                    ImGui::TextUnformatted(WaterTypeName(f.water));
-
-                    ImGui::TableSetColumnIndex(7);
                     if (g_AchTracker.hoarded) {
                         if (g_AchTracker.IsCaught(idx)) {
                             ImGui::TextColored({0.4f, 1.f, 0.4f, 1.f}, "\xe2\x9c\x93"); // ✓
@@ -1354,13 +1340,11 @@ void AddonRender() {
                 ImGuiTableFlags_ScrollY       |
                 ImGuiTableFlags_SizingStretchProp;
 
-            if (ImGui::BeginTable("##FavTable", 5, fflags, {-1.f, favH})) {
+            if (ImGui::BeginTable("##FavTable", 3, fflags, {-1.f, favH})) {
                 ImGui::TableSetupScrollFreeze(0, 1);
                 ImGui::TableSetupColumn("##Star", ImGuiTableColumnFlags_WidthFixed, 20.f);
                 ImGui::TableSetupColumn("Fish",   ImGuiTableColumnFlags_WidthStretch);
                 ImGui::TableSetupColumn("Map",    ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("Bait",   ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("Time",   ImGuiTableColumnFlags_WidthFixed, 54.f);
                 ImGui::TableHeadersRow();
 
                 for (int i = 0; i < FISH_COUNT; i++) {
@@ -1392,12 +1376,6 @@ void AddonRender() {
 
                     ImGui::TableSetColumnIndex(2);
                     ImGui::TextUnformatted(f.map ? f.map : "-");
-
-                    ImGui::TableSetColumnIndex(3);
-                    ImGui::TextUnformatted(BAIT_NAMES[(int)f.bait]);
-
-                    ImGui::TableSetColumnIndex(4);
-                    ImGui::TextUnformatted(TimeOfDayName(f.time));
                 }
                 ImGui::EndTable();
             }

@@ -109,42 +109,55 @@ inline const char* WaterTypeName(WaterType w) {
     }
 }
 
-// GW2 day-night cycle: 4320 seconds total
-// Dawn=0-300, Day=300-1800, Dusk=1800-2100, Night=2100-4320
+// GW2 day-night cycle: 4320 real seconds (72 minutes) total.
+// Boundaries per wiki: Dawn 5 min, Day 40 min, Dusk 5 min, Night 22 min.
+// Dawn=0-300, Day=300-2700, Dusk=2700-3000, Night=3000-4320
+//
+// EPOCH NOTE: The displayed Tyrian hour may not match GW2's /time command.
+// If it drifts, adjust TYRIAN_EPOCH_OFFSET (seconds to subtract from UTC).
+// Empirically ~858 has been observed; verify in-game and tune as needed.
+static const uint32_t TYRIAN_EPOCH_OFFSET = 858;
+
 inline uint32_t GetTyrianSeconds() {
-    return (uint32_t)(time(nullptr) % 4320);
+    time_t t = time(nullptr);
+    return (uint32_t)((t >= (time_t)TYRIAN_EPOCH_OFFSET
+        ? t - (time_t)TYRIAN_EPOCH_OFFSET : t) % 4320);
 }
 
 inline float GetTyrianHour() {
-    return (float)(time(nullptr) % 4320) / 180.0f;
+    return (float)GetTyrianSeconds() / 180.0f;
 }
 
 inline TimeOfDay GetCurrentTimeOfDay() {
     uint32_t s = GetTyrianSeconds();
     if (s < 300)  return TimeOfDay::Dawn;
-    if (s < 1800) return TimeOfDay::Day;
-    if (s < 2100) return TimeOfDay::Dusk;
+    if (s < 2700) return TimeOfDay::Day;
+    if (s < 3000) return TimeOfDay::Dusk;
     return TimeOfDay::Night;
+}
+
+inline TimeOfDay GetNextPhase() {
+    switch (GetCurrentTimeOfDay()) {
+        case TimeOfDay::Dawn:  return TimeOfDay::Day;
+        case TimeOfDay::Day:   return TimeOfDay::Dusk;
+        case TimeOfDay::Dusk:  return TimeOfDay::Night;
+        default:               return TimeOfDay::Dawn;
+    }
 }
 
 inline uint32_t SecondsUntilNextSlot() {
     uint32_t s = GetTyrianSeconds();
-    if (s < 300)  return 300 - s;
-    if (s < 1800) return 1800 - s;
-    if (s < 2100) return 2100 - s;
+    if (s < 300)  return 300  - s;
+    if (s < 2700) return 2700 - s;
+    if (s < 3000) return 3000 - s;
     return 4320 - s;
 }
 
 inline uint32_t SecondsUntilPhase(TimeOfDay phase) {
     uint32_t s = GetTyrianSeconds();
-    uint32_t start;
-    switch (phase) {
-        case TimeOfDay::Dawn:  start = 0;    break;
-        case TimeOfDay::Day:   start = 300;  break;
-        case TimeOfDay::Dusk:  start = 1800; break;
-        case TimeOfDay::Night: start = 2100; break;
-        default: return 0;
-    }
+    const uint32_t starts[] = { 0, 0, 300, 2700, 3000 }; // Any, Dawn, Day, Dusk, Night
+    if (phase == TimeOfDay::Any) return 0;
+    uint32_t start = starts[(int)phase];
     return (start > s) ? (start - s) : (4320 - s + start);
 }
 
