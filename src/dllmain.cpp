@@ -1453,6 +1453,87 @@ static void RebuildSortedFishIndices() {
 }
 
 // ---------------------------------------------------------------------------
+// RenderFavNotification
+// ---------------------------------------------------------------------------
+static void RenderFavNotification() {
+    if (!g_FavNotifActive || g_FavNotif.dismissed || g_FavNotif.fish.empty())
+        return;
+
+    // Auto-dismiss
+    if (g_AutoDismissSeconds > 0) {
+        float age = (float)ImGui::GetTime() - g_FavNotif.createdAt;
+        if (age >= (float)g_AutoDismissSeconds) {
+            g_FavNotif.dismissed = true;
+            return;
+        }
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+    const float PAD = 10.f;
+    const float W   = 300.f;
+
+    // Compute height: header + per-fish rows (2 text lines + button) + dismiss button + padding
+    const float ROW_H  = ImGui::GetTextLineHeightWithSpacing() * 2.f + 26.f + 6.f;
+    const float FOOT_H = 30.f;
+    const float H      = 28.f + (float)g_FavNotif.fish.size() * ROW_H + FOOT_H + PAD;
+
+    ImGui::SetNextWindowPos(
+        {io.DisplaySize.x - W - PAD, io.DisplaySize.y - H - PAD},
+        ImGuiCond_Always);
+    ImGui::SetNextWindowSize({W, H}, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.88f);
+
+    ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoDecoration    |
+        ImGuiWindowFlags_NoNav           |
+        ImGuiWindowFlags_NoMove          |
+        ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.f, 8.f));
+    if (ImGui::Begin("##FavNotif", nullptr, flags)) {
+        ImGui::TextUnformatted("Favourite fish incoming!");
+        ImGui::Separator();
+
+        for (auto& entry : g_FavNotif.fish) {
+            if (entry.fishIdx < 0 || entry.fishIdx >= FISH_COUNT) continue;
+            const Fish& f = FISH_TABLE[entry.fishIdx];
+
+            // Name in rarity colour
+            ImVec4 col = RarityColor(GetFishRarity(f.itemId));
+            ImGui::TextColored(col, "%s", f.name);
+
+            // Map + time remaining on second line
+            uint32_t secs = SecondsUntilPhase(f.time);
+            ImGui::TextDisabled("%s  —  %s in %um %02us",
+                f.map ? f.map : "?",
+                TimeOfDayName(f.time),
+                secs / 60, secs % 60);
+
+            // Open Map button
+            if (entry.mapId != 0) {
+                char btnLbl[64];
+                snprintf(btnLbl, sizeof(btnLbl), "Open Map: %s##om%d",
+                         f.map ? f.map : "?", entry.fishIdx);
+                if (ImGui::Button(btnLbl)) {
+                    g_MapWindowVisible = true;
+                    g_MapPanel.NavigateToMap(entry.mapId);
+                }
+            }
+            ImGui::Spacing();
+        }
+
+        ImGui::Separator();
+        float btnW = 80.f;
+        ImGui::SetCursorPosX(W - btnW - 8.f);
+        if (ImGui::Button("Dismiss##favnotif", {btnW, 0.f}))
+            g_FavNotif.dismissed = true;
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
+// ---------------------------------------------------------------------------
 // AddonRender
 // ---------------------------------------------------------------------------
 void AddonRender() {
@@ -1492,6 +1573,7 @@ void AddonRender() {
 
     RenderOverlay();
     RenderToasts();
+    RenderFavNotification();
 
     if (!g_WindowVisible) return;
 
