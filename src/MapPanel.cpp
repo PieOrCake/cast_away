@@ -548,6 +548,8 @@ static const std::unordered_set<uint32_t> WORLD_MAP_IDS = {
     1509,1510,1517,1526,
     // Janthir Wilds
     1550,1554,1574,1575,
+    // Visions of Eternity
+    1593,1595,1622,
     // VoE / Castora
     1593,1595,
 };
