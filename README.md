@@ -12,12 +12,14 @@ If an LLM creating software upsets you, then perhaps this repo isn't for you. Mo
 
 ## Features
 
-- **287 fish** — Core through Janthir Wilds, with bait, time-of-day, water type, collection, and fillet TP price.
-- **Interactive map** — 3,660+ fishing holes across 54 maps, GW2 waypoints, pan and zoom.
-- **Day/night tracker** — scrolling Tyrian-time bar with phase countdown, plus a positionable HUD overlay.
+- **307 fish** — Core through Visions of Eternity, each with bait, time-of-day, fishing hole type, fillet, and TP price.
+- **Interactive map** — 3,660+ fishing holes across 54 maps, GW2 waypoints, pan and zoom. When a fish is selected the map navigates to its region and filters holes to the matching type (Shore, Offshore, Lake, etc.).
+- **Grouped database view** — browse all fish flat or switch to collection groupings, each with a caught/total progress bar. Filters (bait, time, "Hide caught") apply in both views.
+- **Achievement tracking** — per-collection progress with green progress bars, driven by optional Hoard & Seek / Events:Alerts integration.
+- **Day/night tracker** — scrolling Tyrian-time bar with phase countdown. Click the HUD overlay to open the main window.
 - **Favourite fish alerts** — notifies you before a favourite's time window opens, with a direct Open Map button.
-- **Achievement tracking** — catch progress per collection via optional Hoard & Seek / Events:Alerts integration.
-- **Hole respawn timers** — proximity alerts when nearby holes refresh.
+- **Fish details** — bait, time, hole type, water type, collection, catch status, fillet price, and all bonus drops (guaranteed and chance).
+- **Animated fishtank background** — fish, shark, and seaweed across all panels (optional, toggle in settings).
 
 ## Installation
 
