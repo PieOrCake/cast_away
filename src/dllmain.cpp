@@ -1881,6 +1881,158 @@ void AddonRender() {
                     DrawFishtankBg(dl, tankMn, tankMx);
                     DrawFishtankCreatures(dl, creatureMn, creatureMx);
                 }
+                if (g_GroupByCollection) {
+                    // --- Grouped by collection ---
+                    for (int ci = 0; ci < COLLECTION_COUNT; ++ci) {
+                        const FishingCollection& gcol = COLLECTION_TABLE[ci];
+                        if (gcol.achievementId == 0) continue;
+
+                        // Count visible fish in this collection
+                        int visCount = 0;
+                        for (int fi = 0; fi < FISH_COUNT; ++fi) {
+                            if (FISH_TABLE[fi].achievementId != gcol.achievementId) continue;
+                            if (FishMatchesFilter(fi)) ++visCount;
+                        }
+                        if (visCount == 0) continue;
+
+                        // Collection header (same style as old Collections tab)
+                        char ghdr[128];
+                        const CollectionState* gst = g_AchTracker.GetCollection(gcol.achievementId);
+                        if (gst)
+                            snprintf(ghdr, sizeof(ghdr), "%s  %u/%u##grpcol%u",
+                                     gcol.name, gst->caughtCount, gst->totalFish, gcol.achievementId);
+                        else
+                            snprintf(ghdr, sizeof(ghdr), "%s##grpcol%u",
+                                     gcol.name, gcol.achievementId);
+
+                        ImGui::PushStyleColor(ImGuiCol_Header,        IM_COL32( 5, 20, 55, 220));
+                        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32( 8, 30, 78, 235));
+                        ImGui::PushStyleColor(ImGuiCol_HeaderActive,  IM_COL32(12, 42, 98, 245));
+                        bool gopen = ImGui::CollapsingHeader(ghdr);
+                        ImGui::PopStyleColor(3);
+
+                        // Progress bar on same line as header
+                        if (gst) {
+                            float gfrac = gst->totalFish > 0
+                                          ? (float)gst->caughtCount / gst->totalFish : 0.f;
+                            ImU32 gbarCol = gfrac > 0.f
+                                            ? IM_COL32(40,150,65,220) : IM_COL32(55,55,60,200);
+                            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 160.f);
+                            ImGui::SetNextItemWidth(150.f);
+                            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, gbarCol);
+                            ImGui::ProgressBar(gfrac, {150.f, ImGui::GetTextLineHeight()});
+                            ImGui::PopStyleColor();
+                        }
+
+                        if (!gopen) continue;
+
+                        ImGui::Indent();
+                        int gcardCol = 0;
+                        for (int fi = 0; fi < FISH_COUNT; ++fi) {
+                            if (FISH_TABLE[fi].achievementId != gcol.achievementId) continue;
+                            if (!FishMatchesFilter(fi)) continue;
+
+                            const int idx = fi;
+                            const Fish& f = FISH_TABLE[idx];
+
+                            if (gcardCol == 1)
+                                ImGui::SameLine(cardW + cardGap);
+
+                            ImVec2 p = ImGui::GetCursorScreenPos();
+                            char cardId[32];
+                            snprintf(cardId, sizeof(cardId), "##gcard%d", idx);
+                            ImGui::InvisibleButton(cardId, {cardW, cardH});
+                            bool cardClicked = ImGui::IsItemClicked();
+                            bool hovered     = ImGui::IsItemHovered();
+
+                            float hx = p.x + cardW - 14.f;
+                            float hy = p.y + 14.f;
+                            bool heartHit     = ImGui::IsMouseHoveringRect({hx-10.f,hy-10.f},{hx+10.f,hy+10.f});
+                            bool heartClicked = heartHit && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+                            if (heartClicked)       ToggleFavourite(f.name);
+                            else if (cardClicked) { g_SelectedFish = idx; g_LastDetailFish = idx; }
+
+                            ImU32 bgCol = (g_SelectedFish == idx)
+                                          ? IM_COL32( 5, 45,110,245)
+                                          : hovered ? IM_COL32( 3, 32, 82,230)
+                                                    : IM_COL32( 2, 20, 58,215);
+                            dl->AddRectFilled(p, {p.x+cardW, p.y+cardH}, bgCol, 4.f);
+
+                            ImVec4 rc = RarityColor(GetFishRarity(f.itemId));
+                            ImU32 rarityCol  = IM_COL32((int)(rc.x*255),(int)(rc.y*255),(int)(rc.z*255),255);
+                            ImU32 rarityTint = IM_COL32((int)(rc.x*255),(int)(rc.y*255),(int)(rc.z*255), 40);
+                            dl->AddRectFilledMultiColor(p, {p.x+cardW*0.6f, p.y+cardH},
+                                                        rarityTint, IM_COL32(0,0,0,0),
+                                                        IM_COL32(0,0,0,0), rarityTint);
+                            dl->AddRectFilled(p, {p.x+borderSz, p.y+cardH}, rarityCol, 4.f, ImDrawCornerFlags_Left);
+                            ImU32 outlineCol = (g_SelectedFish == idx)
+                                               ? IM_COL32(90,143,212,200)
+                                               : IM_COL32(20, 60,110,180);
+                            dl->AddRect(p, {p.x+cardW, p.y+cardH}, outlineCol, 4.f);
+
+                            float ix = p.x + borderSz + pad;
+                            float iy = p.y + (cardH - iconSz) * 0.5f;
+                            if (f.itemId != 0) {
+                                Texture_t* tex = CastAway::IconManager::GetIcon(f.itemId);
+                                if (tex && tex->Resource)
+                                    dl->AddImage((ImTextureID)(uintptr_t)tex->Resource,
+                                                {ix,iy},{ix+iconSz,iy+iconSz});
+                                else {
+                                    CastAway::IconManager::RequestIcon(f.itemId, f.iconUrl ? f.iconUrl : "");
+                                    dl->AddRectFilled({ix,iy},{ix+iconSz,iy+iconSz},IM_COL32(30,30,30,200),3.f);
+                                }
+                            }
+
+                            float tx         = ix + iconSz + pad;
+                            float tRightEdge = p.x + cardW - 26.f;
+                            ImU32 nameCol    = IM_COL32((int)(rc.x*255),(int)(rc.y*255),(int)(rc.z*255),255);
+                            dl->AddText({tx, p.y+pad}, nameCol, f.name);
+                            dl->AddText({tx, p.y+pad+lineH+2.f}, IM_COL32(130,130,130,255), f.map ? f.map : "");
+
+                            float chipY = p.y + pad + lineH*2.f + 5.f;
+                            float chipX = tx;
+                            auto chip = [&](const char* text, ImU32 iconCol, auto drawIcon) {
+                                ImVec2 tsz = ImGui::CalcTextSize(text);
+                                float iconW = tsz.y;
+                                float cw = 3.f+iconW+3.f+tsz.x+3.f, ch = tsz.y+2.f;
+                                if (chipX + cw > tRightEdge) return;
+                                dl->AddRectFilled({chipX,chipY},{chipX+cw,chipY+ch},IM_COL32(4,16,40,220),2.f);
+                                drawIcon(dl,{chipX+3.f,chipY+1.f},iconW,iconCol);
+                                dl->AddText({chipX+3.f+iconW+3.f,chipY+1.f},IM_COL32(153,153,153,255),text);
+                                chipX += cw + 3.f;
+                            };
+                            chip(BAIT_NAMES[(int)f.bait], IM_COL32(200,160,60,255),
+                                [&](ImDrawList* d, ImVec2 ip, float s, ImU32 c){
+                                    if (const BaitInfo* bi = GetBaitInfo(f.bait)) {
+                                        Texture_t* btx = CastAway::IconManager::GetIcon(bi->itemId);
+                                        if (btx && btx->Resource) {
+                                            d->AddImage((ImTextureID)(uintptr_t)btx->Resource,{ip.x,ip.y},{ip.x+s,ip.y+s});
+                                            return;
+                                        }
+                                        CastAway::IconManager::RequestIcon(bi->itemId, bi->iconUrl);
+                                    }
+                                    DrawChipBaitIcon(d,ip,s,c);
+                                });
+                            chip(TimeOfDayName(f.time), ChipTimeColor(f.time),
+                                [&](ImDrawList* d, ImVec2 ip, float s, ImU32 c){ DrawChipTimeIcon(d,ip,s,f.time,c); });
+                            chip(WaterTypeName(f.water), ChipWaterColor(f.water),
+                                [&](ImDrawList* d, ImVec2 ip, float s, ImU32 c){ DrawChipWaterIcon(d,ip,s,f.water,c); });
+
+                            bool fav = IsFavourite(f.name);
+                            DrawHeart(dl, {hx,hy}, 11.f,
+                                      fav ? IM_COL32(210,50,50,255) : IM_COL32(110,110,110,200), true);
+                            bool caught = g_AchTracker.hoarded && g_AchTracker.IsCaught(idx);
+                            dl->AddCircleFilled({hx, hy+18.f}, 4.f,
+                                                caught ? IM_COL32(76,175,80,255) : IM_COL32(55,55,55,255));
+
+                            gcardCol = 1 - gcardCol;
+                        }
+                        if (gcardCol == 1) ImGui::NewLine(); // complete partial last row
+                        ImGui::Unindent();
+                        ImGui::Spacing();
+                    }
+                } else {
+
                 int col = 0;
 
                 for (int idx : g_SortedFishIndices) {
@@ -2010,6 +2162,8 @@ void AddonRender() {
 
                     col = 1 - col;
                 }
+
+                } // end else (ungrouped)
             }
             ImGui::EndChild();
 
