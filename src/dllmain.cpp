@@ -2164,13 +2164,20 @@ void AddonRender() {
                     char header[128];
                     snprintf(header, sizeof(header), "%s  %u/%u##achcol%u",
                              col.name, st->caughtCount, st->totalFish, col.achievementId);
+                    ImGui::PushStyleColor(ImGuiCol_Header,        IM_COL32( 5, 20, 55, 220));
+                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32( 8, 30, 78, 235));
+                    ImGui::PushStyleColor(ImGuiCol_HeaderActive,  IM_COL32(12, 42, 98, 245));
                     bool open = ImGui::CollapsingHeader(header);
+                    ImGui::PopStyleColor(3);
 
-                    // Progress bar — render after CollapsingHeader
+                    // Progress bar — green when any progress, grey at zero
                     float frac = st->totalFish > 0 ? (float)st->caughtCount / st->totalFish : 0.f;
+                    ImU32 barCol = frac > 0.f ? IM_COL32(40, 150, 65, 220) : IM_COL32(55, 55, 60, 200);
                     ImGui::SameLine(ImGui::GetContentRegionAvail().x - 160.f);
                     ImGui::SetNextItemWidth(150.f);
+                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, barCol);
                     ImGui::ProgressBar(frac, {150.f, ImGui::GetTextLineHeight()});
+                    ImGui::PopStyleColor();
 
                     if (!open) continue;
 
