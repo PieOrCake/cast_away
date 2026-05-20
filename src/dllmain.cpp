@@ -427,6 +427,7 @@ static NexusLinkData_t* g_NexusLink = nullptr;
 static ImVec2 g_OverlayPos     = {-1.f, -1.f};  // sentinel: computed on first render
 static bool g_MapWindowVisible = false;
 static bool g_ShowQAIcon     = true;
+static bool g_ShowFishtank   = true;
 
 static MapPanel g_MapPanel;
 
@@ -514,6 +515,7 @@ static void SaveSettings() {
         j["overlay_pos_x"]       = g_OverlayPos.x;
         j["overlay_pos_y"]       = g_OverlayPos.y;
         j["show_qa_icon"]        = g_ShowQAIcon;
+        j["show_fishtank"]       = g_ShowFishtank;
         j["notify_lead_seconds"]   = g_NotifyLeadSeconds;
         j["auto_dismiss_seconds"]  = g_AutoDismissSeconds;
         j["fav_notif_enabled"]     = g_FavNotifEnabled;
@@ -549,6 +551,7 @@ static void LoadSettings() {
             g_OverlayPos.y = j["overlay_pos_y"].get<float>();
         }
         if (j.contains("show_qa_icon"))        g_ShowQAIcon        = j["show_qa_icon"].get<bool>();
+        if (j.contains("show_fishtank"))       g_ShowFishtank      = j["show_fishtank"].get<bool>();
         if (j.contains("notify_lead_seconds"))  g_NotifyLeadSeconds  = j["notify_lead_seconds"].get<int>();
         if (j.contains("auto_dismiss_seconds")) g_AutoDismissSeconds = j["auto_dismiss_seconds"].get<int>();
         if (j.contains("fav_notif_enabled"))    g_FavNotifEnabled    = j["fav_notif_enabled"].get<bool>();
@@ -1869,8 +1872,10 @@ void AddonRender() {
                 ImDrawList* dl = ImGui::GetWindowDrawList();
                 ImVec2 tankMn = ImGui::GetWindowPos();
                 ImVec2 tankMx = {tankMn.x + ImGui::GetWindowWidth(), tankMn.y + ImGui::GetWindowHeight()};
-                DrawFishtankBg(dl, tankMn, tankMx);
-                DrawFishtankCreatures(dl, creatureMn, creatureMx);
+                if (g_ShowFishtank) {
+                    DrawFishtankBg(dl, tankMn, tankMx);
+                    DrawFishtankCreatures(dl, creatureMn, creatureMx);
+                }
                 int col = 0;
 
                 for (int idx : g_SortedFishIndices) {
@@ -2025,8 +2030,10 @@ void AddonRender() {
                 ImDrawList* dl  = ImGui::GetWindowDrawList();
                 ImVec2 fTankMn = ImGui::GetWindowPos();
                 ImVec2 fTankMx = {fTankMn.x + ImGui::GetWindowWidth(), fTankMn.y + ImGui::GetWindowHeight()};
-                DrawFishtankBg(dl, fTankMn, fTankMx);
-                DrawFishtankCreatures(dl, favCreMn, favCreMx);
+                if (g_ShowFishtank) {
+                    DrawFishtankBg(dl, fTankMn, fTankMx);
+                    DrawFishtankCreatures(dl, favCreMn, favCreMx);
+                }
                 const float fLineH = ImGui::GetTextLineHeight();
                 const float fGap   = cardGap;
                 const float fCardW = floorf((ImGui::GetContentRegionAvail().x - fGap) / 2.f);
@@ -2135,8 +2142,10 @@ void AddonRender() {
                 ImDrawList* dl = ImGui::GetWindowDrawList();
                 ImVec2 colTankMn = ImGui::GetWindowPos();
                 ImVec2 colTankMx = {colTankMn.x + ImGui::GetWindowWidth(), colTankMn.y + ImGui::GetWindowHeight()};
-                DrawFishtankBg(dl, colTankMn, colTankMx);
-                DrawFishtankCreatures(dl, colCreMn, colCreMx);
+                if (g_ShowFishtank) {
+                    DrawFishtankBg(dl, colTankMn, colTankMx);
+                    DrawFishtankCreatures(dl, colCreMn, colCreMx);
+                }
 
             if (!g_AchTracker.hoarded) {
                 ImGui::TextWrapped("Requires the Hoard & Seek addon to be installed and configured.");
@@ -2313,6 +2322,7 @@ void AddonOptions() {
         else
             APIDefs->QuickAccess_Remove(QA_ID);
     }
+    ImGui::Checkbox("Animated background", &g_ShowFishtank);
 
     ImGui::Separator();
 
