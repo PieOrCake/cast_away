@@ -109,8 +109,10 @@ struct BonusItem {
     bool        isChance; // true = chance drop, false = guaranteed
 };
 
-// Returns bonus drop info for a fish (keyed by fish itemId), or nullptr if none.
-const BonusItem* GetBonusItem(uint32_t fishItemId);
+// Returns count of bonus drops for a fish (keyed by fish itemId).
+int GetBonusItemCount(uint32_t fishItemId);
+// Returns bonus drop at given index, or nullptr if out of range.
+const BonusItem* GetBonusItem(uint32_t fishItemId, int index = 0);
 
 inline const char* TimeOfDayName(TimeOfDay t) {
     switch (t) {

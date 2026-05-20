@@ -890,6 +890,18 @@ static void RenderOverlay() {
 
         ImGui::Dummy({W, TOTAL_H});
 
+        // Click anywhere on the overlay to open the main window.
+        // Use raw IO because NoInputs prevents ImGui hit-testing when locked.
+        {
+            ImVec2 mp   = ImGui::GetIO().MousePos;
+            ImVec2 wpos = ImGui::GetWindowPos();
+            ImVec2 wsz  = ImGui::GetWindowSize();
+            if (ImGui::GetIO().MouseClicked[0] &&
+                mp.x >= wpos.x && mp.x <= wpos.x + wsz.x &&
+                mp.y >= wpos.y && mp.y <= wpos.y + wsz.y)
+                g_WindowVisible = true;
+        }
+
         if (!g_OverlayLocked) {
             ImVec2 p = ImGui::GetWindowPos();
             if (p.x != g_OverlayPos.x || p.y != g_OverlayPos.y)
@@ -1308,6 +1320,10 @@ static void RenderFishDetails(int fishIdx) {
     // Only fetch prices for fillet/contents — fish themselves are not tradeable
     if (f.filletItemId != 0)
         g_Prices.Request(f.filletItemId);
+    int bonusCount = GetBonusItemCount(f.itemId);
+    for (int bi = 0; bi < bonusCount; ++bi)
+        if (const BonusItem* b = GetBonusItem(f.itemId, bi))
+            g_Prices.Request(b->itemId);
 
     // Fish icon 48x48
     if (f.itemId != 0) {
@@ -1388,9 +1404,11 @@ static void RenderFishDetails(int fishIdx) {
         }
     }
 
-    // Bonus drop (e.g. Chunk of Ancient Ambergris)
-    if (const BonusItem* bonus = GetBonusItem(f.itemId)) {
-        g_Prices.Request(bonus->itemId);
+    // Bonus drops (e.g. Chunk of Ancient Ambergris, bone materials)
+    for (int bi = 0; bi < bonusCount; ++bi) {
+        const BonusItem* bonus = GetBonusItem(f.itemId, bi);
+        if (!bonus) continue;
+
         ImGui::Spacing();
         ImGui::Separator();
 
