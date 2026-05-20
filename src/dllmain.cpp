@@ -2193,13 +2193,17 @@ void AddonRender() {
                             bool achHov = ImGui::IsItemHovered();
 
                             ImDrawList* adl = ImGui::GetWindowDrawList();
-                            ImU32 achBg = achHov ? IM_COL32(50,50,52,255) : IM_COL32(45,45,48,255);
+                            ImU32 achBg = achHov ? IM_COL32(3,32,82,230) : IM_COL32(2,20,58,215);
                             adl->AddRectFilled(ap, {ap.x+achW, ap.y+achCardH}, achBg, 4.f);
 
                             ImVec4 arc = RarityColor(GetFishRarity(f.itemId));
                             ImU32 aRar = IM_COL32((int)(arc.x*255),(int)(arc.y*255),(int)(arc.z*255),255);
+                            ImU32 aRarTint = IM_COL32((int)(arc.x*255),(int)(arc.y*255),(int)(arc.z*255),40);
+                            adl->AddRectFilledMultiColor(ap, {ap.x+achW*0.6f, ap.y+achCardH},
+                                                         aRarTint, IM_COL32(0,0,0,0),
+                                                         IM_COL32(0,0,0,0), aRarTint);
                             adl->AddRectFilled(ap, {ap.x+3.f, ap.y+achCardH}, aRar, 4.f, ImDrawCornerFlags_Left);
-                            adl->AddRect(ap, {ap.x+achW, ap.y+achCardH}, IM_COL32(60,60,60,200), 4.f);
+                            adl->AddRect(ap, {ap.x+achW, ap.y+achCardH}, IM_COL32(20,60,110,180), 4.f);
 
                             const float acPad = 4.f;
                             float aix = ap.x + 3.f + acPad, aiy = ap.y + acPad;
