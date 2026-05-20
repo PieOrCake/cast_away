@@ -428,6 +428,7 @@ static ImVec2 g_OverlayPos     = {-1.f, -1.f};  // sentinel: computed on first r
 static bool g_MapWindowVisible = false;
 static bool g_ShowQAIcon     = true;
 static bool g_ShowFishtank   = true;
+static bool g_GroupByCollection = false;
 
 static MapPanel g_MapPanel;
 
@@ -517,6 +518,7 @@ static void SaveSettings() {
         j["show_qa_icon"]        = g_ShowQAIcon;
         j["show_fishtank"]       = g_ShowFishtank;
         j["hide_caught"]         = g_HideCaught;
+        j["group_by_collection"] = g_GroupByCollection;
         j["notify_lead_seconds"]   = g_NotifyLeadSeconds;
         j["auto_dismiss_seconds"]  = g_AutoDismissSeconds;
         j["fav_notif_enabled"]     = g_FavNotifEnabled;
@@ -554,6 +556,7 @@ static void LoadSettings() {
         if (j.contains("show_qa_icon"))        g_ShowQAIcon        = j["show_qa_icon"].get<bool>();
         if (j.contains("show_fishtank"))       g_ShowFishtank      = j["show_fishtank"].get<bool>();
         if (j.contains("hide_caught"))         g_HideCaught        = j["hide_caught"].get<bool>();
+        if (j.contains("group_by_collection")) g_GroupByCollection = j["group_by_collection"].get<bool>();
         if (j.contains("notify_lead_seconds"))  g_NotifyLeadSeconds  = j["notify_lead_seconds"].get<int>();
         if (j.contains("auto_dismiss_seconds")) g_AutoDismissSeconds = j["auto_dismiss_seconds"].get<int>();
         if (j.contains("fav_notif_enabled"))    g_FavNotifEnabled    = j["fav_notif_enabled"].get<bool>();
@@ -1822,29 +1825,33 @@ void AddonRender() {
             ImGui::SameLine();
             ImGui::Checkbox("Hide caught", &g_HideCaught);
             ImGui::SameLine();
-
-            // Sort dropdown
-            static const char* sortLabels[] = { "Default", "A–Z", "Rarity" };
-            ImGui::SetNextItemWidth(90.f);
-            if (ImGui::BeginCombo("##Sort", sortLabels[(int)g_SortMode])) {
-                for (int i = 0; i < 3; ++i) {
-                    if (ImGui::Selectable(sortLabels[i], (int)g_SortMode == i)) {
-                        g_SortMode = (FishSortMode)i;
-                        g_SortDirty = true;
-                    }
-                }
-                ImGui::EndCombo();
-            }
+            ImGui::Checkbox("Grouped", &g_GroupByCollection);
             ImGui::SameLine();
 
-            // Direction arrow button
-            if (ImGui::SmallButton(g_SortAsc ? "v" : "^")) {
-                g_SortAsc = !g_SortAsc;
-                g_SortDirty = true;
+            if (!g_GroupByCollection) {
+                // Sort dropdown
+                static const char* sortLabels[] = { "Default", "A–Z", "Rarity" };
+                ImGui::SetNextItemWidth(90.f);
+                if (ImGui::BeginCombo("##Sort", sortLabels[(int)g_SortMode])) {
+                    for (int i = 0; i < 3; ++i) {
+                        if (ImGui::Selectable(sortLabels[i], (int)g_SortMode == i)) {
+                            g_SortMode = (FishSortMode)i;
+                            g_SortDirty = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+
+                // Direction arrow button
+                if (ImGui::SmallButton(g_SortAsc ? "v" : "^")) {
+                    g_SortAsc = !g_SortAsc;
+                    g_SortDirty = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(g_SortAsc ? "Ascending — click to reverse"
+                                                : "Descending — click to reverse");
             }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(g_SortAsc ? "Ascending — click to reverse"
-                                            : "Descending — click to reverse");
 
             if (g_SortDirty) {
                 RebuildSortedFishIndices();
