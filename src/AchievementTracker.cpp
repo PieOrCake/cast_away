@@ -55,8 +55,16 @@ void AchievementTracker::Shutdown() {
 // ---------------------------------------------------------------------------
 
 void AchievementTracker::FlushPendingQuery() {
+    // Periodic re-poll: re-query every 10 minutes while H&S is active
+    if (hoarded && !queryPending) {
+        time_t now = time(nullptr);
+        if (m_lastQueryTime == 0 || now - m_lastQueryTime >= 600)
+            queryPending = true;
+    }
+
     if (!queryPending) return;
     queryPending = false;
+    m_lastQueryTime = time(nullptr);
     QueryAllCollections();
 }
 

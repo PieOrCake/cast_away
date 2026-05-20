@@ -1858,6 +1858,42 @@ const Fish FISH_TABLE[] = {
                105724U, "https://render.guildwars2.com/file/2978E8780EED7720EF75667CBC1014B00E3E3554/3708823.png",
                95673U, "Flawless Fish Fillet", "https://render.guildwars2.com/file/4D779C211845066A3AEB18EBA64BB231A9F00F03/2594828.png",
                "Fishing", "Illusive_Jellycrab" },
+    /* 301 */ { "Fishtailed Frog", "Mistburned Barrens", "Secrets of the Obscure",
+               BaitType::Any, TimeOfDay::Any, WaterType::Freshwater,
+               "Mistburned Barrens Fisher", 8554, 0,
+               104280U, "https://render.guildwars2.com/file/DCCEDBC7D09E45DCDB3E6EB77B16A6AEC2AF5B7B/3592736.png",
+               96762U, "Fine Fish Fillet", "https://render.guildwars2.com/file/7B6CF5C9923AD4E8C76AED444E9C5A15BA2CB6B9/2594829.png",
+               "Fishing", "Fishtailed_Frog" },
+    /* 302 */ { "Feathered Snail", "Mistburned Barrens", "Secrets of the Obscure",
+               BaitType::Any, TimeOfDay::Day, WaterType::Freshwater,
+               "Mistburned Barrens Fisher", 8554, 1,
+               104298U, "https://render.guildwars2.com/file/2B1C4F801BCA993838B5F6F77E14ADB51AAF902B/3592738.png",
+               96943U, "Flavorful Fish Fillet", "https://render.guildwars2.com/file/D4AAF271369F309BDD1363A2C64C79725B0131F5/2594830.png",
+               "Fishing", "Feathered_Snail" },
+    /* 303 */ { "Longbeak Parrotfish", "Mistburned Barrens", "Secrets of the Obscure",
+               BaitType::Any, TimeOfDay::Day, WaterType::Freshwater,
+               "Mistburned Barrens Fisher", 8554, 2,
+               104237U, "https://render.guildwars2.com/file/E3462B4A7A0D01EB5ECC1421C4A376A9DA5E26E3/3592737.png",
+               96943U, "Flavorful Fish Fillet", "https://render.guildwars2.com/file/D4AAF271369F309BDD1363A2C64C79725B0131F5/2594830.png",
+               "Fishing", "Longbeak_Parrotfish" },
+    /* 304 */ { "Spineback Crab", "Mistburned Barrens", "Secrets of the Obscure",
+               BaitType::Any, TimeOfDay::Night, WaterType::Freshwater,
+               "Mistburned Barrens Fisher", 8554, 3,
+               104275U, "https://render.guildwars2.com/file/FB109576366FF3B695FC6B00349109BEEE215ECF/3592733.png",
+               96943U, "Flavorful Fish Fillet", "https://render.guildwars2.com/file/D4AAF271369F309BDD1363A2C64C79725B0131F5/2594830.png",
+               "Fishing", "Spineback_Crab" },
+    /* 305 */ { "Angler Eel", "Mistburned Barrens", "Secrets of the Obscure",
+               BaitType::SparkflyLarva, TimeOfDay::Any, WaterType::Freshwater,
+               "Mistburned Barrens Fisher", 8554, 4,
+               104303U, "https://render.guildwars2.com/file/DBEEF46805AC1BBD9D019F277576F5E86EDA47CB/3592735.png",
+               95663U, "Fantastic Fish Fillet", "https://render.guildwars2.com/file/173FA4FBAC687AA5AF4F7E24C5749562B71503C4/2594827.png",
+               "Fishing", "Angler_Eel" },
+    /* 306 */ { "Hermit Titancrab", "Mistburned Barrens", "Secrets of the Obscure",
+               BaitType::LavaBeetle, TimeOfDay::Any, WaterType::Special,
+               "Mistburned Barrens Fisher", 8554, 5,
+               104459U, "https://render.guildwars2.com/file/F63D90806E0C64F5A60903087DB1B4CB03664A5D/3592734.png",
+               95663U, "Fantastic Fish Fillet", "https://render.guildwars2.com/file/173FA4FBAC687AA5AF4F7E24C5749562B71503C4/2594827.png",
+               "Fishing", "Hermit_Titancrab" },
 };
 const int FISH_COUNT = (int)(sizeof(FISH_TABLE) / sizeof(FISH_TABLE[0]));
 
@@ -1881,6 +1917,7 @@ const Waypoint WAYPOINT_TABLE[] = {
     { "Pub Canach Waypoint",              "[&BJEPAAA=]", 11173.0f,  59803.0f }, // Shipwreck Strand / Castora
     { "Hunter's Camp Waypoint",           "[&BIoPAAA=]",  7748.0f,  58054.0f }, // Starlit Weald
     { "Deepwood Outpost Waypoint",        "[&BOQPAAA=]",  3804.0f,  60931.0f }, // Eternity's Garden
+    { "Astral Ward Camp Waypoint",        "[&BGYOAAA=]", 22367.0f,  23761.0f }, // Inner Nayos / Mistburned Barrens
 };
 const int WAYPOINT_COUNT = (int)(sizeof(WAYPOINT_TABLE) / sizeof(WAYPOINT_TABLE[0]));
 
@@ -1925,6 +1962,8 @@ const FishingHole HOLE_TABLE[] = {
       { 289, 290, 293, 294, 295, 299, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, 6 },
     { "Open Water (Starlit Weald)", "Starlit Weald", 1593U, 0.f, 0.f, 15,
       { 300, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, 1 },
+    { "Open Water (Mistburned Barrens)", "Mistburned Barrens", 1526U, 0.f, 0.f, 17,
+      { 301, 302, 303, 304, 305, 306, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, 6 },
 };
 const int HOLE_COUNT = (int)(sizeof(HOLE_TABLE) / sizeof(HOLE_TABLE[0]));
 
@@ -1945,5 +1984,7 @@ const FishingCollection COLLECTION_TABLE[] = {
     { "Saltwater Fisher", 6393, 14, nullptr },
     { "Horn of Maguuma Fisher", 7114, 21, nullptr },
     { "Janthir Fisher", 8168, 12, nullptr },
+    { "Castora Fisher", 8900, 14, nullptr },
+    { "Mistburned Barrens Fisher", 8554, 6, nullptr },
 };
 const int COLLECTION_COUNT = (int)(sizeof(COLLECTION_TABLE) / sizeof(COLLECTION_TABLE[0]));

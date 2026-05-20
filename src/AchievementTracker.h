@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <ctime>
 #include <unordered_map>
 #include <mutex>
 #include "nexus/Nexus.h"
@@ -37,6 +38,7 @@ private:
     AddonAPI_t* m_api = nullptr;
     mutable std::mutex m_mu;
     std::unordered_map<uint32_t, CollectionState> m_collections;
+    time_t m_lastQueryTime = 0;
 };
 
 extern AchievementTracker g_AchTracker;

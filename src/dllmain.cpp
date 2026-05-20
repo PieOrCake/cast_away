@@ -2151,8 +2151,8 @@ void AddonRender() {
                     }
 
                     char header[128];
-                    snprintf(header, sizeof(header), "%s  %u/%u##col%d",
-                             col.name, st->caughtCount, st->totalFish, ci);
+                    snprintf(header, sizeof(header), "%s  %u/%u##achcol%u",
+                             col.name, st->caughtCount, st->totalFish, col.achievementId);
                     bool open = ImGui::CollapsingHeader(header);
 
                     // Progress bar — render after CollapsingHeader
