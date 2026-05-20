@@ -223,6 +223,10 @@ void MapPanel::RenderHoles(ImDrawList* dl, ImVec2 wp, ImVec2 ws,
                             int selectedFishIdx, float game_x, float game_z) {
     (void)game_x; (void)game_z;
 
+    HoleWater filterType = HoleWater::Any;
+    if (selectedFishIdx >= 0 && selectedFishIdx < FISH_COUNT)
+        filterType = FISH_TABLE[selectedFishIdx].holeType;
+
     // Bounds for the currently shown map are required to convert game coords.
     MapBoundsData b;
     {
@@ -239,6 +243,7 @@ void MapPanel::RenderHoles(ImDrawList* dl, ImVec2 wp, ImVec2 ws,
     for (int i = 0; i < HOLE_LOCATION_COUNT; ++i) {
         const HoleLocation& h = HOLE_LOCATION_TABLE[i];
         if (h.mapId != m_lastMapId) continue;
+        if (filterType != HoleWater::Any && h.water != filterType) continue;
 
         // game metres -> map inches -> continent coords
         float ix = h.game_x * 39.3701f;
@@ -265,10 +270,6 @@ void MapPanel::RenderHoles(ImDrawList* dl, ImVec2 wp, ImVec2 ws,
             ImGui::EndTooltip();
         }
     }
-
-    // Suppress unused-variable warning for selection filter — kept for future
-    // per-fish filtering by water type.
-    (void)selectedFishIdx;
 }
 
 // ---------------------------------------------------------------------------
@@ -484,8 +485,8 @@ bool MapPanel::FetchBoundsForMap(uint32_t mapId) {
 
 void MapPanel::FetchAllMapBounds() {
     std::unordered_set<uint32_t> ids;
-    for (int i = 0; i < HOLE_COUNT; ++i)
-        ids.insert(HOLE_TABLE[i].mapId);
+    for (int i = 0; i < HOLE_LOCATION_COUNT; ++i)
+        ids.insert(HOLE_LOCATION_TABLE[i].mapId);
 
     char msg[128];
     snprintf(msg, sizeof(msg), "[Map] FetchAllMapBounds: %zu unique map IDs", ids.size());
