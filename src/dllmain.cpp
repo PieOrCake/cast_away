@@ -2166,7 +2166,7 @@ void AddonRender() {
                     ImGui::Indent();
                     {
                         const float achGap    = 4.f;
-                        const float achCardH  = 44.f;
+                        const float achCardH  = 62.f;
                         const float achIconSz = 24.f;
                         const float achStartX = ImGui::GetCursorPosX();
                         const float achW = floorf((ImGui::GetContentRegionAvail().x - achGap * 2.f) / 3.f);
@@ -2201,7 +2201,8 @@ void AddonRender() {
                             adl->AddRectFilled(ap, {ap.x+3.f, ap.y+achCardH}, aRar, 4.f, ImDrawCornerFlags_Left);
                             adl->AddRect(ap, {ap.x+achW, ap.y+achCardH}, IM_COL32(60,60,60,200), 4.f);
 
-                            float aix = ap.x+3.f+4.f, aiy = ap.y+(achCardH-achIconSz)*0.5f;
+                            const float acPad = 4.f;
+                            float aix = ap.x + 3.f + acPad, aiy = ap.y + acPad;
                             if (f.itemId != 0) {
                                 Texture_t* ti = CastAway::IconManager::GetIcon(f.itemId);
                                 if (ti && ti->Resource)
@@ -2213,12 +2214,47 @@ void AddonRender() {
                                 }
                             }
 
-                            float atx = aix+achIconSz+4.f, atRE = ap.x+achW-18.f;
-                            adl->AddText({atx, ap.y+5.f}, aRar, f.name);
-                            adl->AddText({atx, ap.y+5.f+achLH+2.f}, IM_COL32(130,130,130,255), f.map ? f.map : "");
+                            const float acRightX = ap.x + achW - 18.f;
+                            float atx = aix + achIconSz + 4.f;
+                            adl->AddText({atx, ap.y + acPad},              aRar,                       f.name);
+                            adl->AddText({atx, ap.y + acPad + achLH + 2.f}, IM_COL32(130,130,130,255), f.map ? f.map : "");
 
-                            // Caught dot (right side)
-                            adl->AddCircleFilled({ap.x+achW-9.f, ap.y+achCardH*0.5f}, 5.f,
+                            // Bait · time · water chips
+                            float acChipY = ap.y + acPad + achLH * 2.f + 5.f;
+                            float acChipX = atx;
+                            auto acChip = [&](const char* text, ImU32 iconCol, auto drawIcon) {
+                                ImVec2 tsz = ImGui::CalcTextSize(text);
+                                float iw = tsz.y;
+                                float cw = 3.f+iw+3.f+tsz.x+3.f, ch = tsz.y+2.f;
+                                if (acChipX + cw > acRightX) return;
+                                adl->AddRectFilled({acChipX,acChipY},{acChipX+cw,acChipY+ch},IM_COL32(4,16,40,220),2.f);
+                                drawIcon(adl, {acChipX+3.f,acChipY+1.f}, iw, iconCol);
+                                adl->AddText({acChipX+3.f+iw+3.f,acChipY+1.f},IM_COL32(153,153,153,255),text);
+                                acChipX += cw + 3.f;
+                            };
+                            acChip(BAIT_NAMES[(int)f.bait], IM_COL32(200,160,60,255),
+                                [&](ImDrawList* d, ImVec2 ip, float s, ImU32 c) {
+                                    if (const BaitInfo* bi = GetBaitInfo(f.bait)) {
+                                        Texture_t* bx = CastAway::IconManager::GetIcon(bi->itemId);
+                                        if (bx && bx->Resource) {
+                                            d->AddImage((ImTextureID)(uintptr_t)bx->Resource,{ip.x,ip.y},{ip.x+s,ip.y+s});
+                                            return;
+                                        }
+                                        CastAway::IconManager::RequestIcon(bi->itemId, bi->iconUrl);
+                                    }
+                                    DrawChipBaitIcon(d, ip, s, c);
+                                });
+                            acChip(TimeOfDayName(f.time), ChipTimeColor(f.time),
+                                [&](ImDrawList* d, ImVec2 ip, float s, ImU32 c){ DrawChipTimeIcon(d,ip,s,f.time,c); });
+                            acChip(WaterTypeName(f.water), ChipWaterColor(f.water),
+                                [&](ImDrawList* d, ImVec2 ip, float s, ImU32 c){ DrawChipWaterIcon(d,ip,s,f.water,c); });
+
+                            // Heart + caught dot (right column)
+                            const float acRx = ap.x + achW - 9.f;
+                            bool fav = IsFavourite(f.name);
+                            DrawHeart(adl, {acRx, ap.y + achCardH * 0.5f - 10.f}, 9.f,
+                                      fav ? IM_COL32(210,50,50,255) : IM_COL32(110,110,110,200), true);
+                            adl->AddCircleFilled({acRx, ap.y + achCardH * 0.5f + 6.f}, 4.f,
                                                caught ? IM_COL32(76,175,80,255) : IM_COL32(55,55,55,255));
 
                             if (++achCol >= 3) achCol = 0;
