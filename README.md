@@ -10,6 +10,10 @@ This addon has been largely created using Claude. I understand that some folks h
 
 If an LLM creating software upsets you, then perhaps this repo isn't for you. Move on, and enjoy your day.
 
+## Screenshots
+
+![Cast Away main window](screenshots/main.png)
+
 ## Features
 
 - **307 fish** — Core through Visions of Eternity, each with bait, time-of-day, fishing hole type, fillet, and TP price.
@@ -19,7 +23,6 @@ If an LLM creating software upsets you, then perhaps this repo isn't for you. Mo
 - **Day/night tracker** — scrolling Tyrian-time bar with phase countdown. Click the HUD overlay to open the main window.
 - **Favourite fish alerts** — notifies you before a favourite's time window opens, with a direct Open Map button.
 - **Fish details** — bait, time, hole type, water type, collection, catch status, fillet price, and all bonus drops (guaranteed and chance).
-- **Animated fishtank background** — fish, shark, and seaweed across all panels (optional, toggle in settings).
 
 ## Installation
 

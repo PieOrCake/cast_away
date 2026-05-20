@@ -760,12 +760,7 @@ static void RenderOverlay() {
     if (posWasReset)
         g_OverlayPos = {io.DisplaySize.x / 3.f, io.DisplaySize.y / 3.f};
 
-    static bool s_wasLocked = true;
-    bool justUnlocked = (s_wasLocked && !g_OverlayLocked);
-    s_wasLocked = g_OverlayLocked;
-
-    if (g_OverlayLocked || justUnlocked || posWasReset)
-        ImGui::SetNextWindowPos(g_OverlayPos, ImGuiCond_Always);
+    ImGui::SetNextWindowPos(g_OverlayPos, ImGuiCond_Always);
 
     static const float W      = 240.f;
     static const float BAR_H  = 22.f;
@@ -781,7 +776,7 @@ static void RenderOverlay() {
         ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoBringToFrontOnFocus;
     if (g_OverlayLocked)
-        flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs;
+        flags |= ImGuiWindowFlags_NoMove;
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     if (ImGui::Begin("##CastAwayOverlay", nullptr, flags)) {
@@ -888,24 +883,24 @@ static void RenderOverlay() {
                         IM_COL32(255, 255, 255, 230), nowTick);
         }
 
-        ImGui::Dummy({W, TOTAL_H});
+        ImGui::SetCursorPos({0, 0});
+        ImGui::InvisibleButton("##OverlayBtn", {W, TOTAL_H});
 
-        // Click anywhere on the overlay to open the main window.
-        // Use raw IO because NoInputs prevents ImGui hit-testing when locked.
-        {
-            ImVec2 mp   = ImGui::GetIO().MousePos;
-            ImVec2 wpos = ImGui::GetWindowPos();
-            ImVec2 wsz  = ImGui::GetWindowSize();
-            if (ImGui::GetIO().MouseClicked[0] &&
-                mp.x >= wpos.x && mp.x <= wpos.x + wsz.x &&
-                mp.y >= wpos.y && mp.y <= wpos.y + wsz.y)
-                g_WindowVisible = true;
+        static bool s_wasDragged = false;
+        if (!g_OverlayLocked && ImGui::IsItemActive()) {
+            ImVec2 delta = ImGui::GetIO().MouseDelta;
+            if (delta.x != 0.f || delta.y != 0.f) {
+                g_OverlayPos.x += delta.x;
+                g_OverlayPos.y += delta.y;
+                s_wasDragged = true;
+            }
         }
-
-        if (!g_OverlayLocked) {
-            ImVec2 p = ImGui::GetWindowPos();
-            if (p.x != g_OverlayPos.x || p.y != g_OverlayPos.y)
-                g_OverlayPos = p;
+        if (ImGui::IsItemDeactivated()) {
+            if (!s_wasDragged)
+                g_WindowVisible = true;
+            else if (!g_OverlayLocked)
+                SaveSettings();
+            s_wasDragged = false;
         }
     }
     ImGui::End();
@@ -1823,14 +1818,14 @@ void AddonRender() {
                         g_ShowCurrentOnly = false; g_FilterTime = i;
                     }
                 }
+                if (ImGui::Selectable("Now", g_ShowCurrentOnly)) {
+                    g_ShowCurrentOnly = true;
+                    g_FilterMap = g_CurrentMapName;
+                }
                 ImGui::EndCombo();
             }
             ImGui::SameLine();
-
-            if (ImGui::SmallButton("Now")) {
-                g_ShowCurrentOnly = true;
-                g_FilterMap = g_CurrentMapName;
-            }
+            ImGui::Checkbox("Hide caught", &g_HideCaught);
             ImGui::SameLine();
             if (ImGui::SmallButton("Clear")) {
                 g_SearchBuf[0]    = '\0';
@@ -1840,8 +1835,6 @@ void AddonRender() {
                 g_HideCaught      = false;
                 g_FilterMap.clear();
             }
-            ImGui::SameLine();
-            ImGui::Checkbox("Hide caught", &g_HideCaught);
             ImGui::SameLine();
             ImGui::Checkbox("Grouped", &g_GroupByCollection);
             ImGui::SameLine();
@@ -1954,7 +1947,7 @@ void AddonRender() {
                             const Fish& f = FISH_TABLE[idx];
 
                             if (gcardCol == 1)
-                                ImGui::SameLine(cardW + cardGap);
+                                ImGui::SameLine(0, cardGap);
 
                             ImVec2 p = ImGui::GetCursorScreenPos();
                             char cardId[32];

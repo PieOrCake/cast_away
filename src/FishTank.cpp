@@ -233,7 +233,8 @@ void DrawFishtankCreatures(ImDrawList* dl, ImVec2 mn, ImVec2 mx) {
                 float dir      = ltr ? 1.f : -1.f;
                 float cx       = ltr ? (mn.x - 120.f + progress*(w+240.f))
                                      : (mx.x + 120.f - progress*(w+240.f));
-                float cy       = mn.y + 0.50f * h + sinf(t * 0.35f + (float)j) * 16.f;
+                float homeY    = mn.y + h * (0.30f + hashF(j, 3) * 0.45f);
+                float cy       = homeY + sinf(t * 0.45f + hashF(j, 8) * 6.28318f) * 14.f;
 
                 // Twice the previous size (was bRX=36, bRY=10).
                 const float bRX = 72.f, bRY = 20.f;
@@ -254,17 +255,19 @@ void DrawFishtankCreatures(ImDrawList* dl, ImVec2 mn, ImVec2 mx) {
                     dl->PathLineTo(ImVec2(cx + cosf(a)*bRX, cy + sinf(a)*bRY));
                 }
                 dl->PathFillConvex(top);
-                // Dorsal fin
+                // Dorsal fin — base corners follow the ellipse surface
                 ImVec2 df1(cx,            cy - bRY);
                 ImVec2 df2(cx - dir*24.f, cy - bRY - 32.f);
-                ImVec2 df3(cx - dir*36.f, cy - bRY);
+                ImVec2 df3(cx - dir*36.f, cy - bRY * sqrtf(1.f - (36.f/bRX)*(36.f/bRX)));
                 dl->AddTriangleFilled(df1, df2, df3, top);
-                // Tail
-                float tailX = cx - dir * (bRX + 4.f);
-                ImVec2 t1(tailX,                cy);
-                ImVec2 t2(tailX - dir * 32.f,   cy - 28.f);
-                ImVec2 t3(tailX - dir * 32.f,   cy + 24.f);
-                dl->AddTriangleFilled(t1, t2, t3, top);
+                // Heterocercal tail — both lobes anchored at the body tip
+                float tailX = cx - dir * (bRX - 6.f);
+                ImVec2 bodyTip(tailX, cy);
+                ImVec2 notch(tailX - dir*18.f, cy + 8.f);
+                // Upper lobe — large, spine extends into it
+                dl->AddTriangleFilled(bodyTip, ImVec2(tailX - dir*52.f, cy - 32.f), notch, top);
+                // Lower lobe — small
+                dl->AddTriangleFilled(bodyTip, notch, ImVec2(tailX - dir*28.f, cy + 22.f), top);
                 // Pectoral fin
                 ImVec2 pf1(cx + dir * 16.f, cy + bRY * 0.6f);
                 ImVec2 pf2(cx + dir *  4.f, cy + bRY + 24.f);
