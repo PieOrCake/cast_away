@@ -3,3 +3,6 @@ build/
 *.lib
 handover.md
 CLAUDE.md
+initial_prompt.md
+.superpowers/
+plans/

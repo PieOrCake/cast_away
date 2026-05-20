@@ -44,16 +44,7 @@ void IconManager::Shutdown() {
 std::string IconManager::GetIconsDir() {
     if (!s_IconsDir.empty()) return s_IconsDir;
 
-    char dllPath[MAX_PATH];
-    GetModuleFileNameA(NULL, dllPath, MAX_PATH);
-    std::string dllDir(dllPath);
-    size_t lastSlash = dllDir.find_last_of("\\/");
-    if (lastSlash != std::string::npos) {
-        dllDir = dllDir.substr(0, lastSlash);
-    }
-
-    std::string addonDir = dllDir + "\\addons\\CastAway";
-    CreateDirectoryA(addonDir.c_str(), NULL);
+    std::string addonDir = s_API ? s_API->Paths_GetAddonDirectory("CastAway") : "";
     s_IconsDir = addonDir + "\\icons";
     CreateDirectoryA(s_IconsDir.c_str(), NULL);
     return s_IconsDir;

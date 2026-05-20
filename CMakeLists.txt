@@ -36,6 +36,9 @@ set(SOURCES
     src/dllmain.cpp
     src/FishData.cpp
     src/FishRarity.cpp
+    src/FishBonus.cpp
+    src/FishTank.cpp
+    src/HoleLocations.cpp
     src/TileCache.cpp
     src/MapPanel.cpp
     src/IconManager.cpp

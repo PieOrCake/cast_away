@@ -20,6 +20,29 @@ const char* BAIT_NAMES[] = {
 };
 const int BAIT_COUNT = (int)(sizeof(BAIT_NAMES) / sizeof(BAIT_NAMES[0]));
 
+static const struct { BaitType type; BaitInfo info; } BAIT_INFO_TABLE[] = {
+    { BaitType::FishEgg,          { 95886U, "https://render.guildwars2.com/file/D05006FE08960BB6C76E0D57D7D1D30DFE675DC4/2594404.png" } },
+    { BaitType::FreshwaterMinnow, { 97064U, "https://render.guildwars2.com/file/C702B61330B41F99B9FBE1CFD4666CD1C94F67D8/2594410.png" } },
+    { BaitType::GlowWorm,         { 95622U, "https://render.guildwars2.com/file/532C57B5CD575D58F1782F46065ECD71B248D8B2/2594418.png" } },
+    { BaitType::HaijuMinnow,      { 96117U, "https://render.guildwars2.com/file/C702B61330B41F99B9FBE1CFD4666CD1C94F67D8/2594410.png" } },
+    { BaitType::LavaBeetle,       { 97872U, "https://render.guildwars2.com/file/FB9DA7C7D29CFCBA54060AC32245BB41FFD701A4/2594420.png" } },
+    { BaitType::Leech,            { 97880U, "https://render.guildwars2.com/file/2DF16CCF0520C6163E255197F1FF2E929FD2377E/2594406.png" } },
+    { BaitType::LightningBug,     { 95993U, "https://render.guildwars2.com/file/FFA7F31F9368353350029760BBCFDA234CFCB296/2594408.png" } },
+    { BaitType::Mackerel,         { 95943U, "https://render.guildwars2.com/file/E2467CC80F1F601EBCF6E4E54FB3939A6F016A9F/2594639.png" } },
+    { BaitType::Nightcrawler,     { 96475U, "https://render.guildwars2.com/file/2733D543CD3F13DB0AFE0925F97664050400D8D1/2594426.png" } },
+    { BaitType::RamsHornSnail,    { 96186U, "https://render.guildwars2.com/file/6F57394B6E0474709E46E408495EB5E37CAC1BF7/2594412.png" } },
+    { BaitType::Sardine,          { 96984U, "https://render.guildwars2.com/file/EF3C70047DE52598C0D13AFA98E4F6AD306B9968/2594422.png" } },
+    { BaitType::Scorpion,         { 97569U, "https://render.guildwars2.com/file/69FBAF9FEB15081730C8BA301C9E4AC3DB0208AF/2594424.png" } },
+    { BaitType::Shrimpling,       { 96319U, "https://render.guildwars2.com/file/361639FF68035375792CC59BCB535760E1671AF1/2594414.png" } },
+    { BaitType::SparkflyLarva,    { 97745U, "https://render.guildwars2.com/file/5FE12904F1483BEA257CFE28041405340C20BE5E/2594416.png" } },
+};
+
+const BaitInfo* GetBaitInfo(BaitType b) {
+    for (const auto& e : BAIT_INFO_TABLE)
+        if (e.type == b) return &e.info;
+    return nullptr;
+}
+
 // 287 fish from the GW2 wiki List of fish
 // Fields: name, map, region, bait, time, water, collection, achievementId, bitIndex,
 //         itemId, iconUrl, filletItemId, filletName, filletIconUrl, masteryRequired, wikiSlug
@@ -130,7 +153,7 @@ const Fish FISH_TABLE[] = {
                BaitType::Sardine, TimeOfDay::Night, WaterType::Saltwater,
                "Seitung Province Fisher", 6336, 19,
                96318U, "https://render.guildwars2.com/file/1708B60B9DCFF901BC137355F07D0A1D3659EA12/2594634.png",
-               95673U, "Flawless Fish Fillet", "https://render.guildwars2.com/file/4D779C211845066A3AEB18EBA64BB231A9F00F03/2594828.png",
+               97075U, "Piece of Crustacean Meat", "https://render.guildwars2.com/file/39290418EC39DABDCB33136E5358E609D5FCC5B1/2594831.png",
                "Fishing", "Mega_Prawn" },
     /*  18 */ { "Fugu Fish", "Seitung Province", "End of Dragons",
                BaitType::Shrimpling, TimeOfDay::Night, WaterType::Saltwater,
@@ -586,7 +609,7 @@ const Fish FISH_TABLE[] = {
                BaitType::Any, TimeOfDay::Any, WaterType::Freshwater,
                "Krytan Fisher", 6068, 0,
                95961U, "https://render.guildwars2.com/file/E2AC72E2C0A443E2CE69C29893A5F8DDD3C49C7C/2594661.png",
-               96762U, "Fine Fish Fillet", "https://render.guildwars2.com/file/7B6CF5C9923AD4E8C76AED444E9C5A15BA2CB6B9/2594829.png",
+               97075U, "Piece of Crustacean Meat", "https://render.guildwars2.com/file/39290418EC39DABDCB33136E5358E609D5FCC5B1/2594831.png",
                "Fishing", "Krytan_Crawfish" },
     /*  94 */ { "Speckled Perch", "Kryta", "Core Tyria",
                BaitType::Any, TimeOfDay::Any, WaterType::Freshwater,
@@ -850,7 +873,7 @@ const Fish FISH_TABLE[] = {
                BaitType::Any, TimeOfDay::Night, WaterType::Freshwater,
                "Shiverpeaks Fisher", 6153, 14,
                96276U, "https://render.guildwars2.com/file/07F49943C93D2F7B0ACD647B47EE0773D517553E/2594433.png",
-               96762U, "Fine Fish Fillet", "https://render.guildwars2.com/file/7B6CF5C9923AD4E8C76AED444E9C5A15BA2CB6B9/2594829.png",
+               97075U, "Piece of Crustacean Meat", "https://render.guildwars2.com/file/39290418EC39DABDCB33136E5358E609D5FCC5B1/2594831.png",
                "Fishing", "Snow_Crab" },
     /* 138 */ { "Alpine Char", "Shiverpeak Mountains", "Core Tyria",
                BaitType::Any, TimeOfDay::Any, WaterType::Freshwater,
@@ -1276,7 +1299,7 @@ const Fish FISH_TABLE[] = {
                BaitType::Mackerel, TimeOfDay::Night, WaterType::Saltwater,
                "Desert Isles Fisher", 6250, 5,
                96513U, "https://render.guildwars2.com/file/654FEA565ECE4D4BE4BC919CF62E941676F0E726/2594499.png",
-               95673U, "Flawless Fish Fillet", "https://render.guildwars2.com/file/4D779C211845066A3AEB18EBA64BB231A9F00F03/2594828.png",
+               97075U, "Piece of Crustacean Meat", "https://render.guildwars2.com/file/39290418EC39DABDCB33136E5358E609D5FCC5B1/2594831.png",
                "Fishing", "King_Crab" },
     /* 209 */ { "Blue Marlin", "Desert Isles", "Path of Fire",
                BaitType::Mackerel, TimeOfDay::Day, WaterType::Saltwater,
@@ -1383,13 +1406,13 @@ const Fish FISH_TABLE[] = {
     /* 226 */ { "Goldfish", "World", "Core Tyria",
                BaitType::Any, TimeOfDay::Any, WaterType::Freshwater,
                "World Class Fisher", 6224, 0,
-               0U, nullptr,
+               96852U, "https://render.guildwars2.com/file/6FFE55C0771CE4CD28E8CD9B979526AA156B9435/2594449.png",
                96762U, "Fine Fish Fillet", "https://render.guildwars2.com/file/7B6CF5C9923AD4E8C76AED444E9C5A15BA2CB6B9/2594829.png",
                "Fishing", "Goldfish" },
     /* 227 */ { "Silverfish", "World", "Core Tyria",
                BaitType::Any, TimeOfDay::Any, WaterType::Freshwater,
                "World Class Fisher", 6224, 7,
-               0U, nullptr,
+               97388U, "https://render.guildwars2.com/file/6D0E49BF0679794FAA3495D1222E2D6F69C5C821/2594451.png",
                96762U, "Fine Fish Fillet", "https://render.guildwars2.com/file/7B6CF5C9923AD4E8C76AED444E9C5A15BA2CB6B9/2594829.png",
                "Fishing", "Silverfish" },
     /* 228 */ { "Armored Scalefish", "World", "Core Tyria",
@@ -1401,7 +1424,7 @@ const Fish FISH_TABLE[] = {
     /* 229 */ { "Red Herring", "World", "Core Tyria",
                BaitType::Any, TimeOfDay::Any, WaterType::Freshwater,
                "World Class Fisher", 6224, 8,
-               0U, nullptr,
+               96116U, "https://render.guildwars2.com/file/419F5A47F6D69D0FD8693319A10FB8C57B234234/2594458.png",
                96762U, "Fine Fish Fillet", "https://render.guildwars2.com/file/7B6CF5C9923AD4E8C76AED444E9C5A15BA2CB6B9/2594829.png",
                "Fishing", "Red_Herring" },
     /* 230 */ { "Bloodfish", "World", "Core Tyria",
@@ -1492,7 +1515,7 @@ const Fish FISH_TABLE[] = {
                BaitType::Any, TimeOfDay::Any, WaterType::Saltwater,
                "Saltwater Fisher", 6393, 2,
                96082U, "https://render.guildwars2.com/file/0AB1E8C3D2A7AD18B2DB6AB195DDA5DF23647E4C/2594472.png",
-               96943U, "Flavorful Fish Fillet", "https://render.guildwars2.com/file/D4AAF271369F309BDD1363A2C64C79725B0131F5/2594830.png",
+               97075U, "Piece of Crustacean Meat", "https://render.guildwars2.com/file/39290418EC39DABDCB33136E5358E609D5FCC5B1/2594831.png",
                "Fishing", "Mantis_Shrimp" },
     /* 245 */ { "Shimmering Squid", "Saltwater", "Core Tyria",
                BaitType::Any, TimeOfDay::Any, WaterType::Saltwater,
@@ -1528,7 +1551,7 @@ const Fish FISH_TABLE[] = {
                BaitType::Any, TimeOfDay::Any, WaterType::Saltwater,
                "Saltwater Fisher", 6393, 5,
                97596U, "https://render.guildwars2.com/file/543E267B0A1B78CBB40FB2250980565A2EF77CEA/2594452.png",
-               95663U, "Fantastic Fish Fillet", "https://render.guildwars2.com/file/173FA4FBAC687AA5AF4F7E24C5749562B71503C4/2594827.png",
+               0U, nullptr, nullptr,
                "Fishing", "Horseshoe_Crab" },
     /* 251 */ { "Aurelian Herring", "Saltwater", "Core Tyria",
                BaitType::Any, TimeOfDay::Any, WaterType::Saltwater,
@@ -1635,13 +1658,13 @@ const Fish FISH_TABLE[] = {
     /* 268 */ { "Daydream", "Horn of Maguuma", "Secrets of the Obscure",
                BaitType::Any, TimeOfDay::Any, WaterType::Freshwater,
                "Horn of Maguuma Fisher", 7114, 14,
-               0U, nullptr,
+               101241U, "https://render.guildwars2.com/file/1EDE34C6DB49F5EBA8E4FCE903B56808AE3D70C3/2594621.png",
                96762U, "Fine Fish Fillet", "https://render.guildwars2.com/file/7B6CF5C9923AD4E8C76AED444E9C5A15BA2CB6B9/2594829.png",
                "Fishing", "Daydream" },
     /* 269 */ { "Phantom Pollock", "Horn of Maguuma", "Secrets of the Obscure",
                BaitType::Any, TimeOfDay::Any, WaterType::Freshwater,
                "Horn of Maguuma Fisher", 7114, 15,
-               0U, nullptr,
+               101127U, "https://render.guildwars2.com/file/966D7DB809335E732B0870E9FFDD0E5AEF66F7B3/2594613.png",
                96762U, "Fine Fish Fillet", "https://render.guildwars2.com/file/7B6CF5C9923AD4E8C76AED444E9C5A15BA2CB6B9/2594829.png",
                "Fishing", "Phantom_Pollock" },
     /* 270 */ { "Buried Angst", "Horn of Maguuma", "Secrets of the Obscure",
@@ -1653,7 +1676,7 @@ const Fish FISH_TABLE[] = {
     /* 271 */ { "Blightbob", "Horn of Maguuma", "Secrets of the Obscure",
                BaitType::Any, TimeOfDay::Night, WaterType::Freshwater,
                "Horn of Maguuma Fisher", 7114, 17,
-               0U, nullptr,
+               101240U, "https://render.guildwars2.com/file/06760AD993E0EF0D572E0A2FDAD6FD45219114EA/2594632.png",
                96762U, "Fine Fish Fillet", "https://render.guildwars2.com/file/7B6CF5C9923AD4E8C76AED444E9C5A15BA2CB6B9/2594829.png",
                "Fishing", "Blightbob" },
     /* 272 */ { "Frenzied Cephalopod", "Horn of Maguuma", "Secrets of the Obscure",
@@ -1665,7 +1688,7 @@ const Fish FISH_TABLE[] = {
     /* 273 */ { "Glutfish", "Horn of Maguuma", "Secrets of the Obscure",
                BaitType::Any, TimeOfDay::Day, WaterType::Freshwater,
                "Horn of Maguuma Fisher", 7114, 19,
-               0U, nullptr,
+               101209U, "https://render.guildwars2.com/file/0E45D1E4020EBBB976DFF05E7FA0D2516B09251F/2594617.png",
                96762U, "Fine Fish Fillet", "https://render.guildwars2.com/file/7B6CF5C9923AD4E8C76AED444E9C5A15BA2CB6B9/2594829.png",
                "Fishing", "Glutfish" },
     /* 274 */ { "Maddened Mackerel", "Horn of Maguuma", "Secrets of the Obscure",
@@ -1752,33 +1775,33 @@ const int FISH_COUNT = (int)(sizeof(FISH_TABLE) / sizeof(FISH_TABLE[0]));
 // One representative waypoint per fishing region (chat links are approximate placeholders)
 // cont_x/cont_y = 0 until Task 10 fills in continent coordinates
 const Waypoint WAYPOINT_TABLE[] = {
-    { "Seitung Harbor Waypoint",          "[&BCgEAAA=]", 0.f, 0.f },
-    { "Kaineng Docks Waypoint",           "[&BK8HAAA=]", 0.f, 0.f },
-    { "Echovald Waypoint",                "[&BFYIAAA=]", 0.f, 0.f },
-    { "Dragon's End Waypoint",            "[&BKQHAAA=]", 0.f, 0.f },
-    { "Ascalon City Waypoint",            "[&BBAEAAA=]", 0.f, 0.f },
-    { "Lion's Arch Waypoint",             "[&BNQCAAA=]", 0.f, 0.f },
-    { "Rata Sum Waypoint",                "[&BKoBAAA=]", 0.f, 0.f },
-    { "Hoelbrak Waypoint",                "[&BE4CAAA=]", 0.f, 0.f },
-    { "Fort Trinity Waypoint",            "[&BNkCAAA=]", 0.f, 0.f },
-    { "Amnoon Waypoint",                  "[&BEEFAAA=]", 0.f, 0.f },
-    { "Corsair Flotilla Waypoint",        "[&BFsFAAA=]", 0.f, 0.f },
-    { "Ember Bay Waypoint",               "[&BK4CAAA=]", 0.f, 0.f },
-    { "Skywatch Archipelago Waypoint",    "[&BKUJAAA=]", 0.f, 0.f },
-    { "Lowland Shore Waypoint",           "[&BAAMAAA=]", 0.f, 0.f },
+    { "Haiju Docks Waypoint",             "[&BGQNAAA=]", 23637.6f, 100727.0f }, // Seitung Province
+    { "Promenade Waypoint",               "[&BMYMAAA=]", 25472.8f,  99591.6f }, // New Kaineng City
+    { "Junkyard Waypoint",                "[&BIsMAAA=]", 30896.1f, 101005.0f }, // The Echovald Wilds
+    { "Harvest Complex Waypoint",         "[&BKAMAAA=]", 34181.0f, 103953.0f }, // Dragon's End
+    { "Ascalon City Waypoint",            "[&BIcBAAA=]", 60987.2f,  30152.3f }, // Plains of Ashford
+    { "Trader's Forum Waypoint",          "[&BBAEAAA=]", 49063.6f,  30911.0f }, // Lion's Arch
+    { "Port Waypoint",                    "[&BAcFAAA=]", 38102.1f,  38251.0f }, // Rata Sum
+    { "Great Lodge Waypoint",             "[&BNUDAAA=]", 53493.1f,  30988.7f }, // Hoelbrak
+    { "Fort Trinity Waypoint",            "[&BO4CAAA=]", 50061.3f,  40004.1f }, // Straits of Devastation
+    { "Amnoon Waypoint",                  "[&BLsKAAA=]", 58615.4f,  43742.9f }, // Crystal Oasis
+    { "Allied Encampment Waypoint",       "[&BFcLAAA=]", 64765.1f,  61579.3f }, // Domain of Kourna
+    { "Castaway Circus Waypoint",         "[&BHgJAAA=]", 38284.7f,  46256.3f }, // Ember Bay
+    { "Beacon of Ages Waypoint",          "[&BCsOAAA=]", 26836.3f,  24387.4f }, // Skywatch Archipelago
+    { "Harvest Shore Waypoint",           "[&BN8OAAA=]", 43186.1f,  21873.1f }, // Lowland Shore
 };
 const int WAYPOINT_COUNT = (int)(sizeof(WAYPOINT_TABLE) / sizeof(WAYPOINT_TABLE[0]));
 
 // One hole entry per region; game_x/game_z are 0 until Task 10 fills coordinates
 // fishIds[] are indices into FISH_TABLE for the fish catchable in that region
 const FishingHole HOLE_TABLE[] = {
-    { "Shore Fish (Seitung Province)", "Seitung Province", 1313U, 0.f, 0.f, 0,
+    { "Shore Fish (Seitung Province)", "Seitung Province", 1442U, 0.f, 0.f, 0,
       { 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0, 0, 0, 0, 0 }, 8 },
-    { "Offshore Fish (New Kaineng City)", "New Kaineng City", 1422U, 0.f, 0.f, 1,
+    { "Offshore Fish (New Kaineng City)", "New Kaineng City", 1438U, 0.f, 0.f, 1,
       { 23, 24, 25, 26, 27, 28, 29, 30, 0, 0, 0, 0, 0, 0, 0, 0 }, 8 },
-    { "Open Water (The Echovald Wilds)", "The Echovald Wilds", 1438U, 0.f, 0.f, 2,
+    { "Open Water (The Echovald Wilds)", "The Echovald Wilds", 1452U, 0.f, 0.f, 2,
       { 44, 45, 46, 47, 48, 49, 50, 51, 0, 0, 0, 0, 0, 0, 0, 0 }, 8 },
-    { "Open Water (Dragon's End)", "Dragon's End", 1428U, 0.f, 0.f, 3,
+    { "Open Water (Dragon's End)", "Dragon's End", 1422U, 0.f, 0.f, 3,
       { 58, 59, 60, 61, 62, 63, 64, 65, 0, 0, 0, 0, 0, 0, 0, 0 }, 8 },
     { "Lake Fish (Ascalon)", "Ascalon", 19U, 0.f, 0.f, 4,
       { 72, 73, 74, 75, 76, 77, 78, 79, 0, 0, 0, 0, 0, 0, 0, 0 }, 8 },
@@ -1788,7 +1811,7 @@ const FishingHole HOLE_TABLE[] = {
       { 114, 115, 116, 117, 118, 119, 120, 121, 0, 0, 0, 0, 0, 0, 0, 0 }, 8 },
     { "Boreal Fish (Shiverpeak Mountains)", "Shiverpeak Mountains", 26U, 0.f, 0.f, 7,
       { 135, 136, 137, 138, 139, 140, 141, 142, 0, 0, 0, 0, 0, 0, 0, 0 }, 8 },
-    { "Offshore Fish (Ruins of Orr)", "Ruins of Orr", 39U, 0.f, 0.f, 8,
+    { "Offshore Fish (Ruins of Orr)", "Ruins of Orr", 62U, 0.f, 0.f, 8,
       { 156, 157, 158, 159, 160, 161, 162, 163, 0, 0, 0, 0, 0, 0, 0, 0 }, 8 },
     { "Desert Fish (Crystal Desert)", "Crystal Desert", 1210U, 0.f, 0.f, 9,
       { 177, 178, 179, 180, 181, 182, 183, 184, 0, 0, 0, 0, 0, 0, 0, 0 }, 8 },
@@ -1800,7 +1823,7 @@ const FishingHole HOLE_TABLE[] = {
       { 226, 227, 228, 229, 230, 231, 232, 233, 0, 0, 0, 0, 0, 0, 0, 0 }, 8 },
     { "Saltwater (Open)", "Saltwater", 0U, 0.f, 0.f, 5,
       { 240, 241, 242, 243, 244, 245, 246, 247, 0, 0, 0, 0, 0, 0, 0, 0 }, 8 },
-    { "Open Water (Horn of Maguuma)", "Horn of Maguuma", 1438U, 0.f, 0.f, 12,
+    { "Open Water (Horn of Maguuma)", "Horn of Maguuma", 1510U, 0.f, 0.f, 12,
       { 254, 255, 256, 257, 258, 259, 260, 261, 0, 0, 0, 0, 0, 0, 0, 0 }, 8 },
     { "Open Water (Janthir)", "Janthir Wilds", 0U, 0.f, 0.f, 13,
       { 275, 276, 277, 278, 279, 280, 281, 282, 0, 0, 0, 0, 0, 0, 0, 0 }, 8 },

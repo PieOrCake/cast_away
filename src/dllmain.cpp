@@ -486,7 +486,10 @@ struct FavNotification {
 };
 
 static FavNotification                  g_FavNotif;
-static bool                             g_FavNotifActive = false;
+static bool                             g_FavNotifActive  = false;
+static bool                             g_FavNotifEnabled = true;
+static bool                             g_FavNotifLocked  = true;
+static ImVec2                           g_FavNotifPos     = {-1.f, -1.f};  // sentinel: computed on first render
 static int                              g_AutoDismissSeconds = 0;
 // Tracks which Tyrian cycle (time(0)/7200) each fish last fired, to prevent
 // re-firing within the same 7200-second cycle.
@@ -511,8 +514,12 @@ static void SaveSettings() {
         j["overlay_pos_x"]       = g_OverlayPos.x;
         j["overlay_pos_y"]       = g_OverlayPos.y;
         j["show_qa_icon"]        = g_ShowQAIcon;
-        j["notify_lead_seconds"] = g_NotifyLeadSeconds;
-        j["auto_dismiss_seconds"] = g_AutoDismissSeconds;
+        j["notify_lead_seconds"]   = g_NotifyLeadSeconds;
+        j["auto_dismiss_seconds"]  = g_AutoDismissSeconds;
+        j["fav_notif_enabled"]     = g_FavNotifEnabled;
+        j["fav_notif_locked"]      = g_FavNotifLocked;
+        j["fav_notif_pos_x"]       = g_FavNotifPos.x;
+        j["fav_notif_pos_y"]       = g_FavNotifPos.y;
 
         std::string path = SettingsPath();
         std::filesystem::create_directories(
@@ -542,8 +549,14 @@ static void LoadSettings() {
             g_OverlayPos.y = j["overlay_pos_y"].get<float>();
         }
         if (j.contains("show_qa_icon"))        g_ShowQAIcon        = j["show_qa_icon"].get<bool>();
-        if (j.contains("notify_lead_seconds")) g_NotifyLeadSeconds = j["notify_lead_seconds"].get<int>();
+        if (j.contains("notify_lead_seconds"))  g_NotifyLeadSeconds  = j["notify_lead_seconds"].get<int>();
         if (j.contains("auto_dismiss_seconds")) g_AutoDismissSeconds = j["auto_dismiss_seconds"].get<int>();
+        if (j.contains("fav_notif_enabled"))    g_FavNotifEnabled    = j["fav_notif_enabled"].get<bool>();
+        if (j.contains("fav_notif_locked"))     g_FavNotifLocked     = j["fav_notif_locked"].get<bool>();
+        if (j.contains("fav_notif_pos_x") && j.contains("fav_notif_pos_y")) {
+            g_FavNotifPos.x = j["fav_notif_pos_x"].get<float>();
+            g_FavNotifPos.y = j["fav_notif_pos_y"].get<float>();
+        }
     } catch (...) {}
 }
 
@@ -738,14 +751,15 @@ static void RenderOverlay() {
 
     ImGuiIO& io = ImGui::GetIO();
 
-    if (g_OverlayPos.x < 0.f)
+    bool posWasReset = (g_OverlayPos.x < 0.f);
+    if (posWasReset)
         g_OverlayPos = {io.DisplaySize.x / 3.f, io.DisplaySize.y / 3.f};
 
     static bool s_wasLocked = true;
     bool justUnlocked = (s_wasLocked && !g_OverlayLocked);
     s_wasLocked = g_OverlayLocked;
 
-    if (g_OverlayLocked || justUnlocked)
+    if (g_OverlayLocked || justUnlocked || posWasReset)
         ImGui::SetNextWindowPos(g_OverlayPos, ImGuiCond_Always);
 
     static const float W      = 240.f;
@@ -991,6 +1005,7 @@ static uint32_t MapIdForFishRegion(const char* regionName) {
 }
 
 static void CheckTimeWindowNotifications() {
+    if (!g_FavNotifEnabled) return;
     static auto lastCheck = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
     if (std::chrono::duration_cast<std::chrono::seconds>(now - lastCheck).count() < 1)
@@ -1455,52 +1470,85 @@ static void RebuildSortedFishIndices() {
 }
 
 // ---------------------------------------------------------------------------
-// RenderFavNotification
+// RenderFavNotification (and dummy for repositioning)
 // ---------------------------------------------------------------------------
-static void RenderFavNotification() {
-    if (!g_FavNotifActive || g_FavNotif.dismissed || g_FavNotif.fish.empty())
-        return;
-
-    // Auto-dismiss
-    if (g_AutoDismissSeconds > 0) {
-        float age = (float)ImGui::GetTime() - g_FavNotif.createdAt;
-        if (age >= (float)g_AutoDismissSeconds) {
-            g_FavNotif.dismissed = true;
-            return;
-        }
-    }
-
-    ImGuiIO& io = ImGui::GetIO();
-    const float PAD = 10.f;
-    const float W   = 300.f;
-
-    // Compute height: header + per-fish rows (2 text lines + button) + dismiss button + padding
+static void FavNotifBeginWindow(const char* id, int fishCount, bool locked,
+                                bool justUnlocked, ImGuiIO& io) {
+    const float W      = 300.f;
     const float lineH  = ImGui::GetTextLineHeightWithSpacing();
     const float btnH   = ImGui::GetFrameHeight();
-    const float ROW_H  = lineH * 2.f + btnH + 6.f;
+    const float CARD_H = 66.f;
+    const float ROW_H  = CARD_H + btnH + 6.f;  // card + Open Map button + gap
     const float FOOT_H = btnH + 8.f;
-    const float HEAD_H = lineH + 6.f;  // header text + separator
-    const int   MAX_FISH = 5;
-    const int   fishCount = (int)std::min((int)g_FavNotif.fish.size(), MAX_FISH);
-    const float H      = HEAD_H + (float)fishCount * ROW_H + FOOT_H + PAD;
+    const float HEAD_H = lineH + 6.f;
+    const float H      = HEAD_H + (float)fishCount * ROW_H + FOOT_H + 10.f;
 
-    ImGui::SetNextWindowPos(
-        {io.DisplaySize.x - W - PAD, io.DisplaySize.y - H - PAD},
-        ImGuiCond_Always);
+    bool posWasReset = (g_FavNotifPos.x < 0.f);
+    if (posWasReset)
+        g_FavNotifPos = {io.DisplaySize.x / 3.f, io.DisplaySize.y / 3.f + 39.f};
+
+    if (locked || justUnlocked || posWasReset)
+        ImGui::SetNextWindowPos(g_FavNotifPos, ImGuiCond_Always);
+
     ImGui::SetNextWindowSize({W, H}, ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.88f);
 
     ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoDecoration    |
         ImGuiWindowFlags_NoNav           |
-        ImGuiWindowFlags_NoMove          |
         ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoBringToFrontOnFocus;
+    if (locked)
+        flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs;
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.f, 8.f));
-    if (ImGui::Begin("##FavNotif", nullptr, flags)) {
+    ImGui::Begin(id, nullptr, flags);
+}
+
+static void FavNotifEndWindow() {
+    if (!g_FavNotifLocked) {
+        ImVec2 p = ImGui::GetWindowPos();
+        if (p.x != g_FavNotifPos.x || p.y != g_FavNotifPos.y)
+            g_FavNotifPos = p;
+    }
+    ImGui::PopStyleVar();
+    ImGui::End();
+}
+
+static void RenderFavNotification() {
+    if (!g_FavNotifEnabled) return;
+
+    ImGuiIO& io = ImGui::GetIO();
+    static bool s_wasLocked = true;
+    bool justUnlocked = (s_wasLocked && !g_FavNotifLocked);
+    s_wasLocked = g_FavNotifLocked;
+
+    bool realVisible = g_FavNotifActive && !g_FavNotif.dismissed && !g_FavNotif.fish.empty();
+
+    // Auto-dismiss
+    if (realVisible && g_AutoDismissSeconds > 0) {
+        float age = (float)ImGui::GetTime() - g_FavNotif.createdAt;
+        if (age >= (float)g_AutoDismissSeconds) {
+            g_FavNotif.dismissed = true;
+            realVisible = false;
+        }
+    }
+
+    if (realVisible) {
+        const int MAX_FISH  = 5;
+        const int fishCount = (int)std::min((int)g_FavNotif.fish.size(), MAX_FISH);
+        FavNotifBeginWindow("##FavNotif", fishCount, g_FavNotifLocked, justUnlocked, io);
+
         ImGui::TextUnformatted("Favourite fish incoming!");
         ImGui::Separator();
+
+        static const float CARD_H   = 66.f;
+        static const float ICON_SZ  = 36.f;
+        static const float BORDER_W = 3.f;
+        static const float PAD      = 6.f;
+        const float lineH2 = ImGui::GetTextLineHeight();
+        const float cardW  = ImGui::GetContentRegionAvail().x;
+        ImDrawList* dl     = ImGui::GetWindowDrawList();
 
         int shown = 0;
         for (auto& entry : g_FavNotif.fish) {
@@ -1509,18 +1557,50 @@ static void RenderFavNotification() {
             shown++;
             const Fish& f = FISH_TABLE[entry.fishIdx];
 
-            // Name in rarity colour
-            ImVec4 col = RarityColor(GetFishRarity(f.itemId));
-            ImGui::TextColored(col, "%s", f.name);
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            ImVec4 rc = RarityColor(GetFishRarity(f.itemId));
+            ImU32 rarityCol  = IM_COL32((int)(rc.x*255),(int)(rc.y*255),(int)(rc.z*255),255);
+            ImU32 rarityTint = IM_COL32((int)(rc.x*255),(int)(rc.y*255),(int)(rc.z*255), 40);
 
-            // Map + time remaining on second line
+            // Card background
+            dl->AddRectFilled(p, {p.x+cardW, p.y+CARD_H}, IM_COL32(2,20,58,215), 4.f);
+            // Rarity gradient wash
+            dl->AddRectFilledMultiColor(p, {p.x+cardW*0.6f, p.y+CARD_H},
+                                        rarityTint, IM_COL32(0,0,0,0),
+                                        IM_COL32(0,0,0,0), rarityTint);
+            // Rarity border
+            dl->AddRectFilled(p, {p.x+BORDER_W, p.y+CARD_H}, rarityCol, 4.f,
+                              ImDrawCornerFlags_Left);
+            // Outline
+            dl->AddRect(p, {p.x+cardW, p.y+CARD_H}, IM_COL32(20,60,110,180), 4.f);
+
+            // Icon
+            float ix = p.x + BORDER_W + PAD;
+            float iy = p.y + (CARD_H - ICON_SZ) * 0.5f;
+            if (f.itemId != 0) {
+                Texture_t* tex = CastAway::IconManager::GetIcon(f.itemId);
+                if (tex && tex->Resource)
+                    dl->AddImage((ImTextureID)(uintptr_t)tex->Resource,
+                                 {ix, iy}, {ix+ICON_SZ, iy+ICON_SZ});
+                else {
+                    CastAway::IconManager::RequestIcon(f.itemId, f.iconUrl ? f.iconUrl : "");
+                    dl->AddRectFilled({ix,iy},{ix+ICON_SZ,iy+ICON_SZ}, IM_COL32(30,30,30,200), 3.f);
+                }
+            }
+
+            // Text
+            float tx = ix + ICON_SZ + PAD;
             uint32_t secs = SecondsUntilPhase(f.time);
-            ImGui::TextDisabled("%s  —  %s in %um %02us",
-                f.map ? f.map : "?",
-                TimeOfDayName(f.time),
-                secs / 60, secs % 60);
+            dl->AddText({tx, p.y+PAD}, rarityCol, f.name);
+            dl->AddText({tx, p.y+PAD+lineH2+2.f}, IM_COL32(130,130,130,255),
+                        f.map ? f.map : "?");
+            char timeBuf[48];
+            snprintf(timeBuf, sizeof(timeBuf), "%s in %um %02us",
+                     TimeOfDayName(f.time), secs/60, secs%60);
+            dl->AddText({tx, p.y+PAD+lineH2*2.f+4.f}, IM_COL32(160,160,160,220), timeBuf);
 
-            // Open Map button
+            ImGui::Dummy({cardW, CARD_H});
+
             if (entry.mapId != 0) {
                 char btnLbl[64];
                 snprintf(btnLbl, sizeof(btnLbl), "Open Map: %s##om%d",
@@ -1532,19 +1612,60 @@ static void RenderFavNotification() {
             }
             ImGui::Spacing();
         }
-        int total = (int)g_FavNotif.fish.size();
-        if (total > MAX_FISH) {
-            ImGui::TextDisabled("...and %d more", total - MAX_FISH);
-        }
+        if ((int)g_FavNotif.fish.size() > MAX_FISH)
+            ImGui::TextDisabled("...and %d more", (int)g_FavNotif.fish.size() - MAX_FISH);
 
         ImGui::Separator();
         float btnW = 80.f;
         ImGui::SetCursorPosX(ImGui::GetWindowWidth() - btnW - ImGui::GetStyle().WindowPadding.x);
         if (ImGui::Button("Dismiss##favnotif", {btnW, 0.f}))
             g_FavNotif.dismissed = true;
+
+        FavNotifEndWindow();
+
+    } else if (!g_FavNotifLocked) {
+        // Dummy panel for repositioning
+        FavNotifBeginWindow("##FavNotifDummy", 1, false, justUnlocked, io);
+        ImGui::TextUnformatted("Favourite fish incoming!");
+        ImGui::Separator();
+        {
+            static const float CARD_H   = 66.f;
+            static const float ICON_SZ  = 36.f;
+            static const float BORDER_W = 3.f;
+            static const float PAD      = 6.f;
+            const float lineH2 = ImGui::GetTextLineHeight();
+            const float cardW  = ImGui::GetContentRegionAvail().x;
+            ImDrawList* dl     = ImGui::GetWindowDrawList();
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            // Rare (gold) dummy card
+            ImU32 rarityCol  = IM_COL32(252,209,11,255);
+            ImU32 rarityTint = IM_COL32(252,209,11, 40);
+            dl->AddRectFilled(p, {p.x+cardW, p.y+CARD_H}, IM_COL32(2,20,58,215), 4.f);
+            dl->AddRectFilledMultiColor(p, {p.x+cardW*0.6f, p.y+CARD_H},
+                                        rarityTint, IM_COL32(0,0,0,0),
+                                        IM_COL32(0,0,0,0), rarityTint);
+            dl->AddRectFilled(p, {p.x+BORDER_W, p.y+CARD_H}, rarityCol, 4.f,
+                              ImDrawCornerFlags_Left);
+            dl->AddRect(p, {p.x+cardW, p.y+CARD_H}, IM_COL32(20,60,110,180), 4.f);
+            float ix = p.x + BORDER_W + PAD;
+            float iy = p.y + (CARD_H - ICON_SZ) * 0.5f;
+            dl->AddRectFilled({ix,iy},{ix+ICON_SZ,iy+ICON_SZ}, IM_COL32(30,30,30,200), 3.f);
+            float tx = ix + ICON_SZ + PAD;
+            dl->AddText({tx, p.y+PAD}, rarityCol, "Shining Dragonfish");
+            dl->AddText({tx, p.y+PAD+lineH2+2.f},  IM_COL32(130,130,130,255), "Cantha");
+            dl->AddText({tx, p.y+PAD+lineH2*2.f+4.f}, IM_COL32(160,160,160,220), "Dawn in 2m 30s");
+            ImGui::Dummy({cardW, CARD_H});
+        }
+        ImGui::Button("Open Map: Cantha##omdummy");
+        ImGui::Spacing();
+        ImGui::Separator();
+        float btnW = 80.f;
+        ImGui::SetCursorPosX(ImGui::GetWindowWidth() - btnW - ImGui::GetStyle().WindowPadding.x);
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.4f);
+        ImGui::Button("Dismiss##favdummy", {btnW, 0.f});
+        ImGui::PopStyleVar();
+        FavNotifEndWindow();
     }
-    ImGui::PopStyleVar();
-    ImGui::End();
 }
 
 // ---------------------------------------------------------------------------
@@ -2135,13 +2256,6 @@ void AddonOptions() {
     ImGui::Text("Cast Away v%d.%d", V_MAJOR, V_MINOR);
     ImGui::Separator();
 
-    ImGui::Checkbox("Show time overlay", &g_OverlayVisible);
-    ImGui::SameLine();
-    ImGui::Checkbox("Lock position##overlay", &g_OverlayLocked);
-    ImGui::SameLine();
-    if (ImGui::Button("Reset position##overlay"))
-        g_OverlayPos = {-1.f, -1.f};
-
     bool prevQA = g_ShowQAIcon;
     ImGui::Checkbox("Show quick access icon", &g_ShowQAIcon);
     if (g_ShowQAIcon != prevQA) {
@@ -2152,10 +2266,46 @@ void AddonOptions() {
             APIDefs->QuickAccess_Remove(QA_ID);
     }
 
-    ImGui::SliderInt("Notify before window (seconds)", &g_NotifyLeadSeconds, 30, 600);
-    ImGui::SliderInt("Auto-dismiss notification (0 = never)", &g_AutoDismissSeconds, 0, 600);
+    ImGui::Separator();
+
+    ImGui::Checkbox("Show time overlay", &g_OverlayVisible);
+    if (g_OverlayVisible) {
+        ImGui::Indent();
+        ImGui::Checkbox("Lock position##overlay", &g_OverlayLocked);
+        ImGui::SameLine();
+        if (ImGui::Button("Reset position##overlay"))
+            g_OverlayPos = {-1.f, -1.f};
+        ImGui::Unindent();
+    }
+
+    ImGui::Separator();
+
+    ImGui::Checkbox("Notify when favourite fish can be caught", &g_FavNotifEnabled);
+    if (g_FavNotifEnabled) {
+        ImGui::Indent();
+
+        int mins = g_NotifyLeadSeconds / 60;
+        if (ImGui::SliderInt("Time before##notif", &mins, 1, 15, "%d min"))
+            g_NotifyLeadSeconds = mins * 60;
+
+        // Auto-close: index 0 = never, 1-24 = 5-120 seconds in 5s steps
+        int autoIdx = (g_AutoDismissSeconds == 0) ? 0
+                    : std::clamp(g_AutoDismissSeconds / 5, 1, 24);
+        char autoFmt[16];
+        snprintf(autoFmt, sizeof(autoFmt),
+                 autoIdx == 0 ? "Never" : "%d sec", autoIdx * 5);
+        if (ImGui::SliderInt("Auto close##notif", &autoIdx, 0, 24, autoFmt))
+            g_AutoDismissSeconds = (autoIdx == 0) ? 0 : autoIdx * 5;
+
+        ImGui::Checkbox("Lock position##favnotif", &g_FavNotifLocked);
+        ImGui::SameLine();
+        if (ImGui::Button("Reset position##favnotif"))
+            g_FavNotifPos = {-1.f, -1.f};
+
+        ImGui::Unindent();
+    }
     ImGui::Spacing();
-    ImGui::TextDisabled("Toggle: Ctrl+Shift+F");
+
 }
 
 // ---------------------------------------------------------------------------

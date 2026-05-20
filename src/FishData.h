@@ -93,6 +93,23 @@ extern const int               COLLECTION_COUNT;
 
 const char* GetFishRarity(uint32_t itemId);
 
+struct BaitInfo {
+    uint32_t    itemId;
+    const char* iconUrl;
+};
+// Returns icon/item info for a bait type, or nullptr for Any/BorrowedBait.
+const BaitInfo* GetBaitInfo(BaitType b);
+
+struct BonusItem {
+    uint32_t    itemId;
+    const char* name;
+    const char* iconUrl;
+    bool        isChance; // true = chance drop, false = guaranteed
+};
+
+// Returns bonus drop info for a fish (keyed by fish itemId), or nullptr if none.
+const BonusItem* GetBonusItem(uint32_t fishItemId);
+
 inline const char* TimeOfDayName(TimeOfDay t) {
     switch (t) {
         case TimeOfDay::Dawn:  return "Dawn";
@@ -111,56 +128,76 @@ inline const char* WaterTypeName(WaterType w) {
     }
 }
 
-// GW2 day-night cycle: 4320 real seconds (72 minutes) total.
-// Boundaries per wiki: Dawn 5 min, Day 40 min, Dusk 5 min, Night 22 min.
-// Dawn=0-300, Day=300-2700, Dusk=2700-3000, Night=3000-4320
-//
-// EPOCH NOTE: The displayed Tyrian hour may not match GW2's /time command.
-// If it drifts, adjust TYRIAN_EPOCH_OFFSET (seconds to subtract from UTC).
-// Empirically ~858 has been observed; verify in-game and tune as needed.
-static const uint32_t TYRIAN_EPOCH_OFFSET = 858;
+// GW2 day-night cycle: 7200 sec (120 min). UTC 00:00 = Tyrian 00:00 (mid-Night).
+// 1 Tyrian hour = 300 real seconds = 5 real minutes.
+// Phase boundaries on the Tyrian clock:
+//   Night 21:00–05:00
+//   Dawn  05:00–06:00
+//   Day   06:00–20:00
+//   Dusk  20:00–21:00
+// As cycle-seconds (0 = Tyrian midnight):
+//   0    – 1500 Night (early)
+//   1500 – 1800 Dawn
+//   1800 – 6000 Day
+//   6000 – 6300 Dusk
+//   6300 – 7200 Night (late)
+
+static const uint32_t TYRIAN_CYCLE   = 7200;
+static const uint32_t TY_DAWN_START  = 1500;
+static const uint32_t TY_DAY_START   = 1800;
+static const uint32_t TY_DUSK_START  = 6000;
+static const uint32_t TY_NIGHT_START = 6300;
 
 inline uint32_t GetTyrianSeconds() {
-    time_t t = time(nullptr);
-    return (uint32_t)((t >= (time_t)TYRIAN_EPOCH_OFFSET
-        ? t - (time_t)TYRIAN_EPOCH_OFFSET : t) % 4320);
+    return (uint32_t)(time(nullptr) % TYRIAN_CYCLE);
 }
 
+// Tyrian clock hour (0..24). UTC 00:00 = Tyrian 00:00.
 inline float GetTyrianHour() {
-    return (float)GetTyrianSeconds() / 180.0f;
+    return (float)GetTyrianSeconds() / 300.0f;
 }
 
 inline TimeOfDay GetCurrentTimeOfDay() {
     uint32_t s = GetTyrianSeconds();
-    if (s < 300)  return TimeOfDay::Dawn;
-    if (s < 2700) return TimeOfDay::Day;
-    if (s < 3000) return TimeOfDay::Dusk;
-    return TimeOfDay::Night;
+    if (s < TY_DAWN_START)  return TimeOfDay::Night; // 00:00–05:00 Tyrian
+    if (s < TY_DAY_START)   return TimeOfDay::Dawn;
+    if (s < TY_DUSK_START)  return TimeOfDay::Day;
+    if (s < TY_NIGHT_START) return TimeOfDay::Dusk;
+    return TimeOfDay::Night;                         // 21:00–24:00 Tyrian
 }
 
 inline TimeOfDay GetNextPhase() {
     switch (GetCurrentTimeOfDay()) {
+        case TimeOfDay::Night: return TimeOfDay::Dawn;
         case TimeOfDay::Dawn:  return TimeOfDay::Day;
         case TimeOfDay::Day:   return TimeOfDay::Dusk;
         case TimeOfDay::Dusk:  return TimeOfDay::Night;
-        default:               return TimeOfDay::Dawn;
+        default:               return TimeOfDay::Day;
     }
 }
 
 inline uint32_t SecondsUntilNextSlot() {
     uint32_t s = GetTyrianSeconds();
-    if (s < 300)  return 300  - s;
-    if (s < 2700) return 2700 - s;
-    if (s < 3000) return 3000 - s;
-    return 4320 - s;
+    if (s < TY_DAWN_START)  return TY_DAWN_START  - s;
+    if (s < TY_DAY_START)   return TY_DAY_START   - s;
+    if (s < TY_DUSK_START)  return TY_DUSK_START  - s;
+    if (s < TY_NIGHT_START) return TY_NIGHT_START - s;
+    // Late night (6300–7200): next boundary is Dawn at 1500 of next cycle.
+    return (TYRIAN_CYCLE - s) + TY_DAWN_START;
 }
 
 inline uint32_t SecondsUntilPhase(TimeOfDay phase) {
-    uint32_t s = GetTyrianSeconds();
-    const uint32_t starts[] = { 0, 0, 300, 2700, 3000 }; // Any, Dawn, Day, Dusk, Night
     if (phase == TimeOfDay::Any) return 0;
-    uint32_t start = starts[(int)phase];
-    return (start > s) ? (start - s) : (4320 - s + start);
+    uint32_t s = GetTyrianSeconds();
+    uint32_t start = 0;
+    switch (phase) {
+        case TimeOfDay::Dawn:  start = TY_DAWN_START;  break;
+        case TimeOfDay::Day:   start = TY_DAY_START;   break;
+        case TimeOfDay::Dusk:  start = TY_DUSK_START;  break;
+        case TimeOfDay::Night: start = TY_NIGHT_START; break;
+        default:               return 0;
+    }
+    return (start > s) ? (start - s) : (TYRIAN_CYCLE - s + start);
 }
 
 #define CAST_AWAY_ADDON_NAME "Cast Away"

@@ -33,10 +33,10 @@ public:
     // Returns GPU texture or nullptr (enqueues download in background if not on disk)
     Texture_t* GetTile(int z, int x, int y);
 
-    // Enqueue all tiles covering the given continent rect at zoom levels 4..7
-    // Safe to call from the render thread.
-    void PrefetchRegion(float cont_minX, float cont_minY,
-                        float cont_maxX, float cont_maxY);
+    // Enqueue tiles covering the given continent rect at a SINGLE zoom level.
+    // Call when the map opens, a fish is selected, or zoom level changes.
+    void PrefetchView(int z, float cont_minX, float cont_minY,
+                      float cont_maxX, float cont_maxY);
 
 private:
     void DownloadWorker();

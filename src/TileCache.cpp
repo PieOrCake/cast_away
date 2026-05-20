@@ -97,33 +97,28 @@ Texture_t* TileCache::GetTile(int z, int x, int y) {
     return nullptr;
 }
 
-void TileCache::PrefetchRegion(float minX, float minY, float maxX, float maxY) {
-    // Render-thread-only writes to m_requested / m_onDisk; no lock needed for those.
-    // Lock m_dlMu only when pushing to m_dlQueue.
+void TileCache::PrefetchView(int z, float minX, float minY, float maxX, float maxY) {
+    int txMin, tyMin, txMax, tyMax;
+    TileXY(z, minX, minY, txMin, tyMin);
+    TileXY(z, maxX, maxY, txMax, tyMax);
+    if (txMin > txMax) std::swap(txMin, txMax);
+    if (tyMin > tyMax) std::swap(tyMin, tyMax);
+    int maxTile = (1 << z) - 1;
+    txMin = std::max(txMin, 0); tyMin = std::max(tyMin, 0);
+    txMax = std::min(txMax, maxTile); tyMax = std::min(tyMax, maxTile);
+
     std::vector<TileKey> toEnqueue;
-
-    for (int z = 4; z <= 7; ++z) {
-        int tx_min, ty_min, tx_max, ty_max;
-        TileXY(z, minX, minY, tx_min, ty_min);
-        TileXY(z, maxX, maxY, tx_max, ty_max);
-        if (tx_min > tx_max) std::swap(tx_min, tx_max);
-        if (ty_min > ty_max) std::swap(ty_min, ty_max);
-
-        for (int tx = tx_min; tx <= tx_max; ++tx) {
-            for (int ty = ty_min; ty <= ty_max; ++ty) {
-                TileKey key{z, tx, ty};
-                if (m_requested.count(key) && m_requested[key]) continue;
-                m_requested[key] = true;
-
-                if (std::filesystem::exists(TilePath(z, tx, ty))) {
-                    m_onDisk[key] = true;
-                } else {
-                    toEnqueue.push_back(key);
-                }
-            }
+    for (int tx = txMin; tx <= txMax; ++tx) {
+        for (int ty = tyMin; ty <= tyMax; ++ty) {
+            TileKey key{z, tx, ty};
+            if (m_requested.count(key) && m_requested[key]) continue;
+            m_requested[key] = true;
+            if (std::filesystem::exists(TilePath(z, tx, ty)))
+                m_onDisk[key] = true;
+            else
+                toEnqueue.push_back(key);
         }
     }
-
     if (!toEnqueue.empty()) {
         std::lock_guard<std::mutex> lk(m_dlMu);
         for (auto& k : toEnqueue) m_dlQueue.push(k);
