@@ -19,6 +19,7 @@
 #include "IconManager.h"
 #include "PriceCache.h"
 #include "AchievementTracker.h"
+#include "FishTank.h"
 
 #define V_MAJOR    0
 #define V_MINOR    1
@@ -420,7 +421,10 @@ void AddonOptions();
 static AddonAPI_t*       APIDefs  = nullptr;
 static AddonDefinition_t AddonDef{};
 static bool g_WindowVisible  = false;
-static bool g_OverlayVisible = false;
+static bool   g_OverlayVisible = false;
+static bool   g_OverlayLocked  = true;
+static ImVec2 g_OverlayPos     = {-1.f, -1.f};  // sentinel: computed on first render
+static bool g_MapWindowVisible = false;
 static bool g_ShowQAIcon     = true;
 
 static MapPanel g_MapPanel;
@@ -442,6 +446,11 @@ static std::mutex               g_FavMutex;
 static bool g_SwitchToDatabase = false;
 
 static std::vector<int> g_SortedFishIndices;
+
+enum class FishSortMode { Default, Alphabetical, Rarity, MapName };
+static FishSortMode g_SortMode = FishSortMode::Default;
+static bool         g_SortAsc  = true;
+static bool         g_SortDirty = true;
 
 static const int   HOLE_RESPAWN_SECONDS = 600;
 static const int   HOLE_DWELL_SECONDS   = 30;
@@ -465,11 +474,29 @@ static std::vector<Toast> g_Toasts;
 static std::mutex         g_ToastMu;
 static std::unordered_map<int, uint32_t> g_LastNotifiedCycle;
 
+struct FavFishEntry {
+    int         fishIdx;   // index into FISH_TABLE
+    uint32_t    mapId;     // mapId for "Open Map" button (0 if not found)
+};
+
+struct FavNotification {
+    std::vector<FavFishEntry> fish;
+    float    createdAt  = 0.f;  // ImGui::GetTime() when fired
+    bool     dismissed  = false;
+};
+
+static FavNotification                  g_FavNotif;
+static bool                             g_FavNotifActive = false;
+static int                              g_AutoDismissSeconds = 0;
+// Tracks which Tyrian cycle (time(0)/7200) each fish last fired, to prevent
+// re-firing within the same 7200-second cycle.
+static std::unordered_map<int, int64_t> g_LastNotifiedCycleWall;
+
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
 static std::string SettingsPath() {
-    return std::string(APIDefs->Paths_GetAddonDirectory("cast_away")) + "/settings.json";
+    return std::string(APIDefs->Paths_GetAddonDirectory("CastAway")) + "/settings.json";
 }
 
 static void SaveSettings() {
@@ -480,6 +507,9 @@ static void SaveSettings() {
             j["favourites"] = g_Favourites;
         }
         j["overlay_visible"]     = g_OverlayVisible;
+        j["overlay_locked"]      = g_OverlayLocked;
+        j["overlay_pos_x"]       = g_OverlayPos.x;
+        j["overlay_pos_y"]       = g_OverlayPos.y;
         j["show_qa_icon"]        = g_ShowQAIcon;
         j["notify_lead_seconds"] = g_NotifyLeadSeconds;
 
@@ -505,6 +535,11 @@ static void LoadSettings() {
                 if (v.is_string()) g_Favourites.push_back(v.get<std::string>());
         }
         if (j.contains("overlay_visible"))     g_OverlayVisible    = j["overlay_visible"].get<bool>();
+        if (j.contains("overlay_locked"))      g_OverlayLocked     = j["overlay_locked"].get<bool>();
+        if (j.contains("overlay_pos_x") && j.contains("overlay_pos_y")) {
+            g_OverlayPos.x = j["overlay_pos_x"].get<float>();
+            g_OverlayPos.y = j["overlay_pos_y"].get<float>();
+        }
         if (j.contains("show_qa_icon"))        g_ShowQAIcon        = j["show_qa_icon"].get<bool>();
         if (j.contains("notify_lead_seconds")) g_NotifyLeadSeconds = j["notify_lead_seconds"].get<int>();
     } catch (...) {}
@@ -571,59 +606,70 @@ static void RenderDayNightBar(float windowWidth) {
     ImDrawList* dl     = ImGui::GetWindowDrawList();
     ImVec2      origin = ImGui::GetCursorScreenPos();
 
-    // Gradient colour stops: {tyrianHour, R, G, B}
+    // Gradient colour stops: {tyrianHour, R, G, B}. Matches GW2 phase boundaries:
+    //   00:00–05:00 Night, 05:00–06:00 Dawn, 06:00–20:00 Day, 20:00–21:00 Dusk, 21:00–24:00 Night
     struct Stop { float h; uint8_t r, g, b; };
     static const Stop stops[] = {
-        { 0.00f, 10,  10,  30  },
-        { 1.67f, 45,  27,  78  },
-        { 3.33f, 196, 107, 26  },
-        { 5.00f, 88,  153, 212 },
-        {12.00f, 135, 206, 235 },
-        {15.00f, 88,  153, 212 },
-        {16.67f, 212, 112, 42  },
-        {18.00f, 26,  10,  46  },
-        {24.00f, 10,  10,  30  },
+        { 0.00f, 15,  15,  50  },   // deep night
+        { 5.00f, 25,  20,  70  },   // night, approaching dawn
+        { 5.50f, 196, 107, 26  },   // mid-dawn (orange)
+        { 6.00f, 110, 180, 230 },   // day begins
+        {12.00f, 180, 220, 255 },   // noon
+        {18.00f, 130, 200, 230 },   // late afternoon
+        {20.00f, 110, 180, 230 },   // day end
+        {20.50f, 212, 112, 42  },   // mid-dusk (orange)
+        {21.00f, 30,  20,  70  },   // night begins
+        {24.00f, 15,  15,  50  },   // deep night
     };
     static const int NSTOPS = (int)(sizeof(stops) / sizeof(stops[0]));
-
-    for (int i = 0; i < NSTOPS - 1; i++) {
-        float x0 = origin.x + (stops[i].h   / 24.f) * windowWidth;
-        float x1 = origin.x + (stops[i+1].h / 24.f) * windowWidth;
-        ImU32 c0 = IM_COL32(stops[i].r,   stops[i].g,   stops[i].b,   255);
-        ImU32 c1 = IM_COL32(stops[i+1].r, stops[i+1].g, stops[i+1].b, 255);
-        dl->AddRectFilledMultiColor(
-            {x0, origin.y}, {x1, origin.y + BAR_H},
-            c0, c1, c1, c0);
-    }
 
     // Current time / phase
     float tyrHour = GetTyrianHour();
     TimeOfDay phase = GetCurrentTimeOfDay();
     uint32_t secLeft = SecondsUntilNextSlot();
 
-    // Diamond marker at current hour
-    float dx = origin.x + (tyrHour / 24.f) * windowWidth;
-    float dy = origin.y + BAR_H - 4.f;
-    float ds = 6.f;
-    dl->AddQuadFilled(
-        {dx,      dy - ds},
-        {dx + ds, dy      },
-        {dx,      dy + ds },
-        {dx - ds, dy      },
-        IM_COL32(255, 255, 255, 220));
-    dl->AddQuad(
-        {dx,      dy - ds},
-        {dx + ds, dy      },
-        {dx,      dy + ds },
-        {dx - ds, dy      },
-        IM_COL32(0, 0, 0, 180), 1.f);
+    // Scrolled view: bar shows [now - 12h, now + 12h], with "now" pinned to the centre.
+    // Each pixel column is sampled from the gradient at its corresponding Tyrian hour.
+    const float leftH = tyrHour - 12.f;
+    auto colorAt = [&](float h) -> ImU32 {
+        h = fmodf(h + 24.f * 100.f, 24.f); // normalise into [0,24)
+        for (int i = 0; i < NSTOPS - 1; i++) {
+            if (h >= stops[i].h && h < stops[i+1].h) {
+                float t = (h - stops[i].h) / (stops[i+1].h - stops[i].h);
+                uint8_t r = (uint8_t)(stops[i].r + (stops[i+1].r - stops[i].r) * t);
+                uint8_t g = (uint8_t)(stops[i].g + (stops[i+1].g - stops[i].g) * t);
+                uint8_t b = (uint8_t)(stops[i].b + (stops[i+1].b - stops[i].b) * t);
+                return IM_COL32(r, g, b, 255);
+            }
+        }
+        return IM_COL32(stops[NSTOPS-1].r, stops[NSTOPS-1].g, stops[NSTOPS-1].b, 255);
+    };
+    const int STRIPS = 96;
+    for (int s = 0; s < STRIPS; s++) {
+        float t0 = (float)s       / (float)STRIPS;
+        float t1 = (float)(s + 1) / (float)STRIPS;
+        ImU32 c0 = colorAt(leftH + t0 * 24.f);
+        ImU32 c1 = colorAt(leftH + t1 * 24.f);
+        float x0 = origin.x + t0 * windowWidth;
+        float x1 = origin.x + t1 * windowWidth;
+        dl->AddRectFilledMultiColor(
+            {x0, origin.y}, {x1, origin.y + BAR_H},
+            c0, c1, c1, c0);
+    }
+
+    // Centre "now" line
+    float centerX = origin.x + windowWidth * 0.5f;
+    dl->AddLine({centerX, origin.y}, {centerX, origin.y + BAR_H},
+                IM_COL32(255, 255, 255, 230), 2.f);
+    dl->AddLine({centerX + 1.f, origin.y}, {centerX + 1.f, origin.y + BAR_H},
+                IM_COL32(0, 0, 0, 140), 1.f);
 
     // Left label: "HH:MM  PhaseName"
     char timeLabel[64];
     {
-        uint32_t ts = GetTyrianSeconds();
-        uint32_t hh = ts / 180;
-        uint32_t mm = (ts % 180) * 60 / 180;
+        float th = GetTyrianHour();      // 0..24 Tyrian clock
+        uint32_t hh = (uint32_t)th;
+        uint32_t mm = (uint32_t)((th - (float)hh) * 60.0f);
         snprintf(timeLabel, sizeof(timeLabel), "%02u:%02u  %s", hh, mm, TimeOfDayName(phase));
     }
     dl->AddText({origin.x + 4.f, origin.y + 4.f},
@@ -643,11 +689,17 @@ static void RenderDayNightBar(float windowWidth) {
         {origin.x + windowWidth, origin.y + TOTAL_H},
         IM_COL32(15, 15, 20, 220));
 
-    // Tick marks at 0, 6, 12, 18, 24
-    static const float tickHours[]  = {0.f, 6.f, 12.f, 18.f, 24.f};
-    static const char* tickLabels[] = {"0",  "6",  "12",  "18",  "24"};
-    for (int i = 0; i < 5; i++) {
-        float tx = origin.x + (tickHours[i] / 24.f) * windowWidth;
+    // Tick marks at every 3 Tyrian hours, scrolled with the gradient. The bar shows
+    // a 24-hour window so each hour appears exactly once.
+    static const float tickHours[]  = { 0.f,  3.f,  6.f,  9.f, 12.f, 15.f, 18.f, 21.f };
+    static const char* tickLabels[] = { "0",  "3",  "6",  "9", "12", "15", "18", "21" };
+    static const int   N_TICKS      = (int)(sizeof(tickHours) / sizeof(tickHours[0]));
+    for (int i = 0; i < N_TICKS; i++) {
+        float d = tickHours[i] - leftH;
+        d = fmodf(d + 24.f * 100.f, 24.f);
+        float tx = origin.x + (d / 24.f) * windowWidth;
+        // Suppress ticks within a few pixels of the centre "now" line to avoid overlap
+        if (fabsf(tx - centerX) < 12.f) continue;
         dl->AddLine({tx, origin.y + BAR_H},
                     {tx, origin.y + TOTAL_H - 4.f},
                     IM_COL32(180, 180, 180, 160), 1.f);
@@ -660,35 +712,171 @@ static void RenderDayNightBar(float windowWidth) {
                     IM_COL32(200, 200, 200, 200), tickLabels[i]);
     }
 
+    // "Now" tick — show the current Tyrian hour right under the centre line
+    {
+        char nowTick[8];
+        snprintf(nowTick, sizeof(nowTick), "%02u", (uint32_t)tyrHour);
+        ImVec2 lsz = ImGui::CalcTextSize(nowTick);
+        dl->AddLine({centerX, origin.y + BAR_H},
+                    {centerX, origin.y + TOTAL_H - 4.f},
+                    IM_COL32(255, 255, 255, 220), 1.5f);
+        dl->AddText({centerX - lsz.x * 0.5f, origin.y + BAR_H + 2.f},
+                    IM_COL32(255, 255, 255, 235), nowTick);
+    }
+
     // Advance ImGui cursor past the bar
     ImGui::Dummy({windowWidth, TOTAL_H});
 }
 
 // ---------------------------------------------------------------------------
-// Conditions overlay (small HUD)
+// Conditions overlay — mini day/night bar
 // ---------------------------------------------------------------------------
 static void RenderOverlay() {
     if (!g_OverlayVisible) return;
 
     ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos({io.DisplaySize.x - 180.f, 40.f}, ImGuiCond_Always);
-    ImGui::SetNextWindowSize({170.f, 60.f}, ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.55f);
+
+    if (g_OverlayPos.x < 0.f)
+        g_OverlayPos = {io.DisplaySize.x / 3.f, io.DisplaySize.y / 3.f};
+
+    static bool s_wasLocked = true;
+    bool justUnlocked = (s_wasLocked && !g_OverlayLocked);
+    s_wasLocked = g_OverlayLocked;
+
+    if (g_OverlayLocked || justUnlocked)
+        ImGui::SetNextWindowPos(g_OverlayPos, ImGuiCond_Always);
+
+    static const float W      = 240.f;
+    static const float BAR_H  = 22.f;
+    static const float TICK_H = 13.f;
+    static const float TOTAL_H = BAR_H + TICK_H;
+
+    ImGui::SetNextWindowSize({W, TOTAL_H}, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.f);  // bar fills the whole window
+
     ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoDecoration    |
-        ImGuiWindowFlags_NoInputs        |
         ImGuiWindowFlags_NoNav           |
-        ImGuiWindowFlags_NoMove          |
         ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoBringToFrontOnFocus;
+    if (g_OverlayLocked)
+        flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs;
 
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     if (ImGui::Begin("##CastAwayOverlay", nullptr, flags)) {
-        TimeOfDay phase = GetCurrentTimeOfDay();
-        uint32_t  secs  = SecondsUntilNextSlot();
-        ImGui::Text("GW2 Time: %s", TimeOfDayName(phase));
-        ImGui::Text("Next: %um %02us", secs / 60, secs % 60);
+        ImDrawList* dl     = ImGui::GetWindowDrawList();
+        ImVec2      origin = ImGui::GetCursorScreenPos();
+
+        struct Stop { float h; uint8_t r, g, b; };
+        static const Stop stops[] = {
+            { 0.00f, 15,  15,  50  },
+            { 5.00f, 25,  20,  70  },
+            { 5.50f, 196, 107, 26  },
+            { 6.00f, 110, 180, 230 },
+            {12.00f, 180, 220, 255 },
+            {18.00f, 130, 200, 230 },
+            {20.00f, 110, 180, 230 },
+            {20.50f, 212, 112, 42  },
+            {21.00f, 30,  20,  70  },
+            {24.00f, 15,  15,  50  },
+        };
+        static const int NSTOPS = (int)(sizeof(stops) / sizeof(stops[0]));
+
+        float tyrHour = GetTyrianHour();
+        float leftH   = tyrHour - 12.f;
+
+        auto colorAt = [&](float h) -> ImU32 {
+            h = fmodf(h + 24.f * 100.f, 24.f);
+            for (int i = 0; i < NSTOPS - 1; i++) {
+                if (h >= stops[i].h && h < stops[i+1].h) {
+                    float t = (h - stops[i].h) / (stops[i+1].h - stops[i].h);
+                    uint8_t r = (uint8_t)(stops[i].r + (stops[i+1].r - stops[i].r) * t);
+                    uint8_t g = (uint8_t)(stops[i].g + (stops[i+1].g - stops[i].g) * t);
+                    uint8_t b = (uint8_t)(stops[i].b + (stops[i+1].b - stops[i].b) * t);
+                    return IM_COL32(r, g, b, 255);
+                }
+            }
+            return IM_COL32(stops[NSTOPS-1].r, stops[NSTOPS-1].g, stops[NSTOPS-1].b, 255);
+        };
+
+        // Gradient bar
+        const int STRIPS = 64;
+        for (int s = 0; s < STRIPS; s++) {
+            float t0 = (float)s       / (float)STRIPS;
+            float t1 = (float)(s + 1) / (float)STRIPS;
+            ImU32 c0 = colorAt(leftH + t0 * 24.f);
+            ImU32 c1 = colorAt(leftH + t1 * 24.f);
+            dl->AddRectFilledMultiColor(
+                {origin.x + t0 * W, origin.y},
+                {origin.x + t1 * W, origin.y + BAR_H},
+                c0, c1, c1, c0);
+        }
+
+        // Centre "now" line
+        float cx = origin.x + W * 0.5f;
+        dl->AddLine({cx, origin.y}, {cx, origin.y + BAR_H},
+                    IM_COL32(255, 255, 255, 230), 2.f);
+        dl->AddLine({cx + 1.f, origin.y}, {cx + 1.f, origin.y + BAR_H},
+                    IM_COL32(0, 0, 0, 120), 1.f);
+
+        // Phase label (left) and countdown (right) overlaid on bar
+        TimeOfDay phase   = GetCurrentTimeOfDay();
+        uint32_t  secLeft = SecondsUntilNextSlot();
+        char leftLbl[32];
+        {
+            uint32_t hh = (uint32_t)tyrHour;
+            uint32_t mm = (uint32_t)((tyrHour - (float)hh) * 60.f);
+            snprintf(leftLbl, sizeof(leftLbl), "%02u:%02u %s", hh, mm, TimeOfDayName(phase));
+        }
+        char rightLbl[32];
+        snprintf(rightLbl, sizeof(rightLbl), "%s %um%02us",
+                 TimeOfDayName(GetNextPhase()), secLeft / 60, secLeft % 60);
+
+        dl->AddText({origin.x + 3.f, origin.y + 3.f},
+                    IM_COL32(255, 255, 255, 220), leftLbl);
+        ImVec2 rsz = ImGui::CalcTextSize(rightLbl);
+        dl->AddText({origin.x + W - rsz.x - 3.f, origin.y + 3.f},
+                    IM_COL32(255, 255, 255, 200), rightLbl);
+
+        // Tick strip
+        dl->AddRectFilled(
+            {origin.x, origin.y + BAR_H},
+            {origin.x + W, origin.y + TOTAL_H},
+            IM_COL32(15, 15, 20, 220));
+
+        static const float tickHours[]  = { 0.f, 6.f, 12.f, 18.f };
+        static const char* tickLabels[] = { "0", "6", "12", "18" };
+        for (int i = 0; i < 4; i++) {
+            float d  = fmodf(tickHours[i] - leftH + 24.f * 100.f, 24.f);
+            float tx = origin.x + (d / 24.f) * W;
+            if (fabsf(tx - cx) < 10.f) continue;
+            dl->AddLine({tx, origin.y + BAR_H}, {tx, origin.y + TOTAL_H - 3.f},
+                        IM_COL32(180, 180, 180, 150), 1.f);
+            ImVec2 lsz = ImGui::CalcTextSize(tickLabels[i]);
+            dl->AddText({tx - lsz.x * 0.5f, origin.y + BAR_H + 1.f},
+                        IM_COL32(200, 200, 200, 190), tickLabels[i]);
+        }
+        // "Now" tick
+        {
+            char nowTick[8];
+            snprintf(nowTick, sizeof(nowTick), "%02u", (uint32_t)tyrHour);
+            ImVec2 lsz = ImGui::CalcTextSize(nowTick);
+            dl->AddLine({cx, origin.y + BAR_H}, {cx, origin.y + TOTAL_H - 3.f},
+                        IM_COL32(255, 255, 255, 210), 1.5f);
+            dl->AddText({cx - lsz.x * 0.5f, origin.y + BAR_H + 1.f},
+                        IM_COL32(255, 255, 255, 230), nowTick);
+        }
+
+        ImGui::Dummy({W, TOTAL_H});
+
+        if (!g_OverlayLocked) {
+            ImVec2 p = ImGui::GetWindowPos();
+            if (p.x != g_OverlayPos.x || p.y != g_OverlayPos.y)
+                g_OverlayPos = p;
+        }
     }
     ImGui::End();
+    ImGui::PopStyleVar();
 }
 
 // ---------------------------------------------------------------------------
@@ -905,6 +1093,131 @@ static ImVec4 RarityColor(const char* rarity) {
 // ---------------------------------------------------------------------------
 // ImGui primitive draw helpers
 // ---------------------------------------------------------------------------
+// Coin price rendering (gold/silver/copper with coloured coin circles)
+static const float COIN_RADIUS = 4.0f;
+static const float COIN_GAP    = 2.0f;
+
+static void DrawCoinInline(ImU32 fill, ImU32 edge) {
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    float  cy  = pos.y + ImGui::GetTextLineHeight() * 0.5f;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddCircleFilled(ImVec2(pos.x + COIN_RADIUS, cy), COIN_RADIUS, fill, 12);
+    dl->AddCircle      (ImVec2(pos.x + COIN_RADIUS, cy), COIN_RADIUS, edge, 12, 1.2f);
+    ImGui::Dummy(ImVec2(COIN_RADIUS * 2, ImGui::GetTextLineHeight()));
+    ImGui::SameLine(0, COIN_GAP);
+}
+
+static void RenderCoinPrice(int copper) {
+    if (copper <= 0) { ImGui::TextDisabled("—"); return; }
+    int g = copper / 10000;
+    int s = (copper % 10000) / 100;
+    int c = copper % 100;
+    static const ImVec4 goldCol   = {1.00f, 0.84f, 0.00f, 1.f};
+    static const ImVec4 silverCol = {0.75f, 0.75f, 0.78f, 1.f};
+    static const ImVec4 copperCol = {0.72f, 0.45f, 0.20f, 1.f};
+    if (g > 0) {
+        ImGui::TextColored(goldCol, "%d", g);
+        ImGui::SameLine(0, 1);
+        DrawCoinInline(IM_COL32(255,215,0,255), IM_COL32(180,140,0,255));
+        if (s == 0 && c == 0) return;
+    }
+    if (g > 0 || s > 0) {
+        if (g > 0 && s < 10) ImGui::TextColored(silverCol, "0%d", s);
+        else                  ImGui::TextColored(silverCol, "%d",  s);
+        ImGui::SameLine(0, 1);
+        DrawCoinInline(IM_COL32(192,192,200,255), IM_COL32(120,120,135,255));
+    }
+    if ((g > 0 || s > 0) && c < 10) ImGui::TextColored(copperCol, "0%d", c);
+    else                              ImGui::TextColored(copperCol, "%d",  c);
+    ImGui::SameLine(0, 1);
+    DrawCoinInline(IM_COL32(184,115,51,255), IM_COL32(120,70,30,255));
+}
+
+static ImU32 ChipTimeColor(TimeOfDay t) {
+    switch (t) {
+        case TimeOfDay::Dawn:  return IM_COL32(230,140, 60,255);
+        case TimeOfDay::Day:   return IM_COL32(230,210, 60,255);
+        case TimeOfDay::Dusk:  return IM_COL32(210,100, 40,255);
+        case TimeOfDay::Night: return IM_COL32(100,140,210,255);
+        default:               return IM_COL32(153,153,153,255);
+    }
+}
+
+static ImU32 ChipWaterColor(WaterType w) {
+    switch (w) {
+        case WaterType::Freshwater: return IM_COL32( 80,140,220,255);
+        case WaterType::Saltwater:  return IM_COL32( 60,180,180,255);
+        default:                    return IM_COL32(160,100,200,255);
+    }
+}
+
+// Small primitive icons for attribute chips
+static void DrawChipBaitIcon(ImDrawList* dl, ImVec2 p, float s, ImU32 col) {
+    // J-hook: vertical shaft + curved hook
+    dl->AddLine({p.x+s*0.45f, p.y+s*0.05f}, {p.x+s*0.45f, p.y+s*0.5f}, col, 1.2f);
+    dl->AddBezierCubic({p.x+s*0.45f, p.y+s*0.5f}, {p.x+s*0.45f, p.y+s*0.95f},
+                       {p.x+s*0.9f,  p.y+s*0.95f}, {p.x+s*0.9f, p.y+s*0.68f}, col, 1.2f, 6);
+}
+
+static void DrawChipTimeIcon(ImDrawList* dl, ImVec2 p, float s, TimeOfDay t, ImU32 col) {
+    float cx = p.x+s*0.5f, cy = p.y+s*0.5f, r = s*0.38f;
+    switch (t) {
+        case TimeOfDay::Day:
+            dl->AddCircleFilled({cx,cy}, r*0.65f, col, 8);
+            for (int i = 0; i < 4; i++) {
+                float a = (float)M_PI*0.25f + i*(float)M_PI*0.5f;
+                dl->AddLine({cx+cosf(a)*r*0.78f, cy+sinf(a)*r*0.78f},
+                            {cx+cosf(a)*r,       cy+sinf(a)*r}, col, 1.f);
+            }
+            break;
+        case TimeOfDay::Night:
+            dl->AddCircle({cx, cy}, r, col, 12, 1.2f);
+            dl->AddCircleFilled({cx+r*0.45f, cy-r*0.35f}, 1.8f, col);
+            break;
+        case TimeOfDay::Dawn:
+        case TimeOfDay::Dusk: {
+            float hy = cy + r*0.15f;
+            dl->AddLine({p.x+1.f, hy}, {p.x+s-1.f, hy}, col, 1.f);
+            for (int i = 1; i <= 8; i++) {
+                float a0 = (float)M_PI+(i-1)*(float)M_PI/8.f, a1 = (float)M_PI+i*(float)M_PI/8.f;
+                dl->AddLine({cx+cosf(a0)*r, hy+sinf(a0)*r},
+                           {cx+cosf(a1)*r, hy+sinf(a1)*r}, col, 1.2f);
+            }
+            break;
+        }
+        default:
+            dl->AddCircle({cx, cy}, r, col, 8, 1.2f);
+            break;
+    }
+}
+
+static void DrawChipWaterIcon(ImDrawList* dl, ImVec2 p, float s, WaterType w, ImU32 col) {
+    float cx = p.x+s*0.5f;
+    switch (w) {
+        case WaterType::Freshwater: {
+            float cy = p.y+s*0.62f;
+            dl->AddCircleFilled({cx, cy}, s*0.27f, col, 8);
+            ImVec2 tri[3] = {{cx, p.y+s*0.08f}, {cx-s*0.24f, cy-s*0.05f}, {cx+s*0.24f, cy-s*0.05f}};
+            dl->AddTriangleFilled(tri[0], tri[1], tri[2], col);
+            break;
+        }
+        case WaterType::Saltwater:
+            for (int i = 0; i < 8; i++) {
+                float x0 = p.x+s*i/8.f, x1 = p.x+s*(i+1)/8.f;
+                float a0 = i*(float)M_PI*0.5f, a1 = (i+1)*(float)M_PI*0.5f;
+                dl->AddLine({x0, p.y+s*0.5f+sinf(a0)*s*0.22f},
+                           {x1, p.y+s*0.5f+sinf(a1)*s*0.22f}, col, 1.2f);
+            }
+            break;
+        default: {
+            float r = s*0.36f, cy = p.y+s*0.5f;
+            ImVec2 di[4] = {{cx,cy-r},{cx+r*0.6f,cy},{cx,cy+r},{cx-r*0.6f,cy}};
+            dl->AddPolyline(di, 4, col, true, 1.2f);
+            break;
+        }
+    }
+}
+
 static void DrawHeart(ImDrawList* dl, ImVec2 c, float s, ImU32 col, bool filled) {
     const float r  = s * 0.27f;
     const float bx = s * 0.26f;
@@ -932,53 +1245,6 @@ static void DrawCheckmark(ImDrawList* dl, ImVec2 c, float s, ImU32 col) {
                 {c.x - s * 0.06f, c.y + s * 0.32f}, col, 1.8f);
     dl->AddLine({c.x - s * 0.06f, c.y + s * 0.32f},
                 {c.x + s * 0.38f, c.y - s * 0.22f}, col, 1.8f);
-}
-
-// ---------------------------------------------------------------------------
-// Bait shopping list (Task 15)
-// ---------------------------------------------------------------------------
-static void RenderBaitShoppingList() {
-    if (!g_AchTracker.hoarded) {
-        ImGui::TextDisabled("Requires Hoard & Seek for missing fish data.");
-        return;
-    }
-    std::unordered_map<int, int> baitCount;
-    for (int i = 0; i < FISH_COUNT; ++i) {
-        if (g_AchTracker.IsCaught(i)) continue;
-        baitCount[(int)FISH_TABLE[i].bait]++;
-    }
-    if (baitCount.empty()) {
-        ImGui::TextColored({0.3f,0.9f,0.3f,1.f}, "All fish caught!");
-        return;
-    }
-    if (ImGui::BeginTable("BaitList", 2,
-        ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn("Bait", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Fish needed", ImGuiTableColumnFlags_WidthFixed, 80.f);
-        ImGui::TableHeadersRow();
-        for (int b = 0; b < BAIT_COUNT; ++b) {
-            auto it = baitCount.find(b);
-            if (it == baitCount.end()) continue;
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(BAIT_NAMES[b]);
-            ImGui::TableSetColumnIndex(1); ImGui::Text("%d", it->second);
-        }
-        ImGui::EndTable();
-    }
-    if (ImGui::Button("Copy as text")) {
-        std::string out = "Bait needed for missing fish:\n";
-        for (int b = 0; b < BAIT_COUNT; ++b) {
-            auto it = baitCount.find(b);
-            if (it == baitCount.end()) continue;
-            out += "  " + std::string(BAIT_NAMES[b]) + " x" + std::to_string(it->second) + "\n";
-        }
-        if (OpenClipboard(nullptr)) {
-            EmptyClipboard();
-            HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, out.size()+1);
-            if (h) { memcpy(GlobalLock(h), out.c_str(), out.size()+1); GlobalUnlock(h); SetClipboardData(CF_TEXT, h); }
-            CloseClipboard();
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1034,12 +1300,6 @@ static void RenderFishDetails(int fishIdx) {
         } else {
             row("Caught", "?");
         }
-        if (f.masteryRequired && f.masteryRequired[0]) {
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Mastery");
-            ImGui::TableSetColumnIndex(1);
-            ImGui::TextColored({1.f, 0.6f, 0.2f, 1.f}, "%s", f.masteryRequired);
-        }
         ImGui::EndTable();
     }
 
@@ -1064,10 +1324,8 @@ static void RenderFishDetails(int fishIdx) {
         const PriceInfo* fp = g_Prices.Get(f.filletItemId);
         if (fp && fp->fetched) {
             if (fp->tradeable) {
-                ImGui::TextDisabled("  Buy:  "); ImGui::SameLine();
-                ImGui::Text("%s", FormatCoins(fp->buy_price).c_str());
-                ImGui::TextDisabled("  Sell: "); ImGui::SameLine();
-                ImGui::Text("%s", FormatCoins(fp->sell_price).c_str());
+                ImGui::TextDisabled("Buy: ");  ImGui::SameLine(0, 4); RenderCoinPrice(fp->buy_price);
+                ImGui::TextDisabled("Sell: "); ImGui::SameLine(0, 4); RenderCoinPrice(fp->sell_price);
             } else {
                 ImGui::TextDisabled("  Not tradeable");
             }
@@ -1076,9 +1334,42 @@ static void RenderFishDetails(int fishIdx) {
         }
     }
 
-    // Wiki button
-    if (f.wikiSlug && f.wikiSlug[0]) {
+    // Bonus drop (e.g. Chunk of Ancient Ambergris)
+    if (const BonusItem* bonus = GetBonusItem(f.itemId)) {
+        g_Prices.Request(bonus->itemId);
         ImGui::Spacing();
+        ImGui::Separator();
+
+        Texture_t* bt = CastAway::IconManager::GetIcon(bonus->itemId);
+        if (bt && bt->Resource)
+            ImGui::Image((ImTextureID)(uintptr_t)bt->Resource, {16.f, 16.f});
+        else {
+            if (bonus->iconUrl && bonus->iconUrl[0])
+                CastAway::IconManager::RequestIcon(bonus->itemId, bonus->iconUrl);
+            ImGui::Dummy({16.f, 16.f});
+        }
+        ImGui::SameLine();
+        if (bonus->isChance) {
+            ImGui::TextDisabled("Chance:");
+            ImGui::SameLine(0, 4);
+        }
+        ImGui::TextUnformatted(bonus->name);
+
+        const PriceInfo* bp = g_Prices.Get(bonus->itemId);
+        if (bp && bp->fetched && bp->tradeable) {
+            ImGui::TextDisabled("Buy: ");  ImGui::SameLine(0, 4); RenderCoinPrice(bp->buy_price);
+            ImGui::TextDisabled("Sell: "); ImGui::SameLine(0, 4); RenderCoinPrice(bp->sell_price);
+        } else if (!bp || !bp->fetched) {
+            ImGui::TextDisabled("  Fetching...");
+        }
+    }
+
+    // Buttons row
+    ImGui::Spacing();
+    if (ImGui::SmallButton("Map"))
+        g_MapWindowVisible = true;
+    if (f.wikiSlug && f.wikiSlug[0]) {
+        ImGui::SameLine(0, 6);
         if (ImGui::SmallButton("Open Wiki")) {
             std::string url = std::string("https://wiki.guildwars2.com/wiki/") + f.wikiSlug;
             ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -1089,26 +1380,46 @@ static void RenderFishDetails(int fishIdx) {
 // ---------------------------------------------------------------------------
 // Sort helper
 // ---------------------------------------------------------------------------
-static void RebuildSortedFishIndices(const ImGuiTableSortSpecs* sortSpecs) {
-    if (!sortSpecs || sortSpecs->SpecsCount == 0) {
-        std::iota(g_SortedFishIndices.begin(), g_SortedFishIndices.end(), 0);
-        return;
-    }
-    const ImGuiTableColumnSortSpecs& spec = sortSpecs->Specs[0];
-    bool asc = (spec.SortDirection == ImGuiSortDirection_Ascending);
+static int RarityRank(const char* r) {
+    if (!r) return 0;
+    if (!strcmp(r, "Basic"))      return 1;
+    if (!strcmp(r, "Fine"))       return 2;
+    if (!strcmp(r, "Masterwork")) return 3;
+    if (!strcmp(r, "Rare"))       return 4;
+    if (!strcmp(r, "Exotic"))     return 5;
+    if (!strcmp(r, "Ascended"))   return 6;
+    if (!strcmp(r, "Legendary"))  return 7;
+    return 0;
+}
 
-    // Column indices: 0=icon, 1=star, 2=Fish, 3=Map, 4=Caught
+static void RebuildSortedFishIndices() {
+    std::iota(g_SortedFishIndices.begin(), g_SortedFishIndices.end(), 0);
+    if (g_SortMode == FishSortMode::Default) return;
+
     std::sort(g_SortedFishIndices.begin(), g_SortedFishIndices.end(),
         [&](int a, int b) {
             const Fish& fa = FISH_TABLE[a];
             const Fish& fb = FISH_TABLE[b];
             int cmp = 0;
-            switch (spec.ColumnIndex) {
-                case 2: cmp = strcmp(fa.name, fb.name);                                break;
-                case 3: cmp = strcmp(fa.map ? fa.map : "", fb.map ? fb.map : "");      break;
-                default: cmp = strcmp(fa.name, fb.name);                               break;
+            switch (g_SortMode) {
+                case FishSortMode::Alphabetical:
+                    cmp = strcmp(fa.name ? fa.name : "", fb.name ? fb.name : "");
+                    break;
+                case FishSortMode::Rarity: {
+                    int ra = RarityRank(GetFishRarity(fa.itemId));
+                    int rb = RarityRank(GetFishRarity(fb.itemId));
+                    cmp = (ra < rb) ? -1 : (ra > rb) ? 1 : 0;
+                    // Tie-break by name so same-rarity fish stay grouped sensibly
+                    if (cmp == 0) cmp = strcmp(fa.name ? fa.name : "", fb.name ? fb.name : "");
+                    break;
+                }
+                case FishSortMode::MapName:
+                    cmp = strcmp(fa.map ? fa.map : "", fb.map ? fb.map : "");
+                    if (cmp == 0) cmp = strcmp(fa.name ? fa.name : "", fb.name ? fb.name : "");
+                    break;
+                default: break;
             }
-            return asc ? (cmp < 0) : (cmp > 0);
+            return g_SortAsc ? (cmp < 0) : (cmp > 0);
         });
 }
 
@@ -1125,7 +1436,9 @@ void AddonRender() {
     if (mumble && mumble->uiTick > 0) {
         const GW2Context* ctx =
             reinterpret_cast<const GW2Context*>(mumble->context);
-        mumbleMapId = (int)ctx->mapId;
+        uint32_t rawMapId = ctx->mapId;
+        // GW2 map IDs are well under 100k. Anything larger is stale/garbage memory.
+        mumbleMapId = (rawMapId > 0 && rawMapId < 100000) ? (int)rawMapId : 0;
         game_x = mumble->fAvatarPosition[0];
         game_z = mumble->fAvatarPosition[2];
 
@@ -1155,11 +1468,14 @@ void AddonRender() {
 
     // --- Main window ---
     ImGui::SetNextWindowSize({800.f, 560.f}, ImGuiCond_FirstUseEver);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.02f, 0.07f, 0.15f, 1.f));
     if (!ImGui::Begin("Cast Away##MainWindow", &g_WindowVisible,
                       ImGuiWindowFlags_NoScrollbar)) {
+        ImGui::PopStyleColor();
         ImGui::End();
         return;
     }
+    ImGui::PopStyleColor();
 
     float contentWidth = ImGui::GetContentRegionAvail().x;
     RenderDayNightBar(contentWidth);
@@ -1171,6 +1487,13 @@ void AddonRender() {
         forceTab = 0;
         g_SwitchToDatabase = false;
     }
+
+    // Shared card layout constants (used by Database, Favourites, Achievements tabs)
+    static const float cardGap  = 4.f;
+    static const float cardH    = 66.f;
+    static const float iconSz   = 36.f;
+    static const float borderSz = 3.f;
+    static const float pad      = 6.f;
 
     if (ImGui::BeginTabBar("##CastAwayTabs")) {
 
@@ -1188,8 +1511,20 @@ void AddonRender() {
             if (ImGui::BeginCombo("##Bait",
                     g_FilterBait == 0 ? "All Bait" : BAIT_NAMES[g_FilterBait])) {
                 if (ImGui::Selectable("All Bait", g_FilterBait == 0)) g_FilterBait = 0;
-                for (int i = 1; i < BAIT_COUNT; i++)
+                for (int i = 1; i < BAIT_COUNT; i++) {
+                    if (i == (int)BaitType::BorrowedBait) continue;
+                    if (const BaitInfo* bi = GetBaitInfo((BaitType)i)) {
+                        Texture_t* tex = CastAway::IconManager::GetIcon(bi->itemId);
+                        if (tex && tex->Resource)
+                            ImGui::Image((ImTextureID)(uintptr_t)tex->Resource, {14.f, 14.f});
+                        else {
+                            CastAway::IconManager::RequestIcon(bi->itemId, bi->iconUrl);
+                            ImGui::Dummy({14.f, 14.f});
+                        }
+                        ImGui::SameLine(0, 4);
+                    }
                     if (ImGui::Selectable(BAIT_NAMES[i], g_FilterBait == i)) g_FilterBait = i;
+                }
                 ImGui::EndCombo();
             }
             ImGui::SameLine();
@@ -1239,6 +1574,35 @@ void AddonRender() {
             }
             ImGui::SameLine();
             ImGui::Checkbox("Missing only", &g_MissingOnly);
+            ImGui::SameLine();
+
+            // Sort dropdown
+            static const char* sortLabels[] = { "Default", "A–Z", "Rarity", "Map" };
+            ImGui::SetNextItemWidth(90.f);
+            if (ImGui::BeginCombo("##Sort", sortLabels[(int)g_SortMode])) {
+                for (int i = 0; i < 4; ++i) {
+                    if (ImGui::Selectable(sortLabels[i], (int)g_SortMode == i)) {
+                        g_SortMode = (FishSortMode)i;
+                        g_SortDirty = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+
+            // Direction arrow button
+            if (ImGui::SmallButton(g_SortAsc ? "v" : "^")) {
+                g_SortAsc = !g_SortAsc;
+                g_SortDirty = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(g_SortAsc ? "Ascending — click to reverse"
+                                            : "Descending — click to reverse");
+
+            if (g_SortDirty) {
+                RebuildSortedFishIndices();
+                g_SortDirty = false;
+            }
 
             ImGui::Spacing();
 
@@ -1247,109 +1611,160 @@ void AddonRender() {
             float tableW = contentWidth - detailsW - 8.f;
             float tableH   = ImGui::GetContentRegionAvail().y - 4.f;
 
-            ImGuiTableFlags tflags =
-                ImGuiTableFlags_Sortable      |
-                ImGuiTableFlags_RowBg         |
-                ImGuiTableFlags_BordersInnerV |
-                ImGuiTableFlags_ScrollY       |
-                ImGuiTableFlags_SizingFixedFit;
+            // Card grid — two columns
+            const float lineH = ImGui::GetTextLineHeight();
 
-            if (ImGui::BeginTable("##FishTable", 5, tflags, {tableW, tableH})) {
-                ImGui::TableSetupScrollFreeze(0, 1);
-                ImGui::TableSetupColumn("##Icon",  ImGuiTableColumnFlags_NoSort |
-                                                   ImGuiTableColumnFlags_WidthFixed, 22.f);
-                ImGui::TableSetupColumn("##Star",  ImGuiTableColumnFlags_NoSort |
-                                                   ImGuiTableColumnFlags_WidthFixed, 20.f);
-                ImGui::TableSetupColumn("Fish",    ImGuiTableColumnFlags_DefaultSort |
-                                                   ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("Map",     ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("Caught",  ImGuiTableColumnFlags_NoSort |
-                                                   ImGuiTableColumnFlags_WidthFixed, 54.f);
-                ImGui::TableHeadersRow();
+            // Full swim bounds span card area + details pane; each child clips to its own rect
+            ImVec2 creatureMn = ImGui::GetCursorScreenPos();
+            ImVec2 creatureMx = {creatureMn.x + tableW + 8.f + detailsW, creatureMn.y + tableH};
 
-                // Apply sort
-                if (ImGuiTableSortSpecs* ss = ImGui::TableGetSortSpecs()) {
-                    if (ss->SpecsDirty) {
-                        RebuildSortedFishIndices(ss);
-                        ss->SpecsDirty = false;
-                    }
-                }
+            if (ImGui::BeginChild("##FishCards", {tableW, tableH}, false)) {
+                const float cardW = floorf((ImGui::GetContentRegionAvail().x - cardGap) / 2.f);
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                ImVec2 tankMn = ImGui::GetWindowPos();
+                ImVec2 tankMx = {tankMn.x + ImGui::GetWindowWidth(), tankMn.y + ImGui::GetWindowHeight()};
+                DrawFishtankBg(dl, tankMn, tankMx);
+                DrawFishtankCreatures(dl, creatureMn, creatureMx);
+                int col = 0;
 
                 for (int idx : g_SortedFishIndices) {
                     if (!FishMatchesFilter(idx)) continue;
                     const Fish& f = FISH_TABLE[idx];
 
-                    ImGui::TableNextRow();
+                    if (col == 1)
+                        ImGui::SameLine(cardW + cardGap);
 
-                    // Icon
-                    ImGui::TableSetColumnIndex(0);
+                    ImVec2 p = ImGui::GetCursorScreenPos();
+
+                    // Full-card invisible button drives selection
+                    char cardId[32];
+                    snprintf(cardId, sizeof(cardId), "##card%d", idx);
+                    ImGui::InvisibleButton(cardId, {cardW, cardH});
+                    bool cardClicked = ImGui::IsItemClicked();
+                    bool hovered     = ImGui::IsItemHovered();
+
+                    // Heart hit-test (intercepts clicks before card selection)
+                    float hx = p.x + cardW - 14.f;
+                    float hy = p.y + 14.f;
+                    bool heartHit = ImGui::IsMouseHoveringRect({hx-10.f, hy-10.f},
+                                                               {hx+10.f, hy+10.f});
+                    bool heartClicked = heartHit && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+                    if (heartClicked)       ToggleFavourite(f.name);
+                    else if (cardClicked) { g_SelectedFish = idx; g_LastDetailFish = idx; }
+
+                    // Card background
+                    ImU32 bgCol = (g_SelectedFish == idx)
+                                  ? IM_COL32( 5, 45,110, 245)
+                                  : hovered ? IM_COL32( 3, 32, 82, 230)
+                                            : IM_COL32( 2, 20, 58, 215);
+                    dl->AddRectFilled(p, {p.x + cardW, p.y + cardH}, bgCol, 4.f);
+
+                    // Rarity border (left edge)
+                    ImVec4 rc = RarityColor(GetFishRarity(f.itemId));
+                    ImU32 rarityCol = IM_COL32((int)(rc.x*255), (int)(rc.y*255),
+                                               (int)(rc.z*255), 255);
+                    // Rarity gradient wash: rarity colour at left fading to transparent
+                    ImU32 rarityTint = IM_COL32((int)(rc.x*255),(int)(rc.y*255),(int)(rc.z*255), 40);
+                    dl->AddRectFilledMultiColor(p, {p.x + cardW*0.6f, p.y + cardH},
+                                               rarityTint, IM_COL32(0,0,0,0),
+                                               IM_COL32(0,0,0,0), rarityTint);
+                    dl->AddRectFilled(p, {p.x + borderSz, p.y + cardH},
+                                     rarityCol, 4.f, ImDrawCornerFlags_Left);
+
+                    // Card outline
+                    ImU32 outlineCol = (g_SelectedFish == idx)
+                                       ? IM_COL32(90, 143, 212, 200)
+                                       : IM_COL32(20, 60,110, 180);
+                    dl->AddRect(p, {p.x + cardW, p.y + cardH}, outlineCol, 4.f);
+
+                    // Fish icon (36x36, vertically centred)
+                    float ix = p.x + borderSz + pad;
+                    float iy = p.y + (cardH - iconSz) * 0.5f;
                     if (f.itemId != 0) {
                         Texture_t* tex = CastAway::IconManager::GetIcon(f.itemId);
-                        if (tex && tex->Resource) {
-                            ImGui::Image((ImTextureID)(uintptr_t)tex->Resource, {18.f, 18.f});
-                        } else {
+                        if (tex && tex->Resource)
+                            dl->AddImage((ImTextureID)(uintptr_t)tex->Resource,
+                                        {ix, iy}, {ix + iconSz, iy + iconSz});
+                        else {
                             CastAway::IconManager::RequestIcon(f.itemId,
                                                                f.iconUrl ? f.iconUrl : "");
-                            ImGui::Dummy({18.f, 18.f});
+                            dl->AddRectFilled({ix, iy}, {ix+iconSz, iy+iconSz},
+                                             IM_COL32(30,30,30,200), 3.f);
                         }
-                    } else {
-                        ImGui::Dummy({18.f, 18.f});
                     }
 
-                    // Star
-                    ImGui::TableSetColumnIndex(1);
-                    {
-                        bool fav = IsFavourite(f.name);
-                        char btnId[32];
-                        snprintf(btnId, sizeof(btnId), "##heart%d", idx);
-                        ImVec2 pos = ImGui::GetCursorScreenPos();
-                        ImGui::InvisibleButton(btnId, {18.f, 18.f});
-                        if (ImGui::IsItemClicked()) ToggleFavourite(f.name);
-                        ImVec2 hc = {pos.x + 9.f, pos.y + 9.f};
-                        if (fav)
-                            DrawHeart(ImGui::GetWindowDrawList(), hc, 11.f,
-                                      IM_COL32(210, 50, 50, 255), true);
-                        else
-                            DrawHeart(ImGui::GetWindowDrawList(), hc, 11.f,
-                                      IM_COL32(110, 110, 110, 160), false);
-                    }
+                    // Text block
+                    float tx         = ix + iconSz + pad;
+                    float tRightEdge = p.x + cardW - 26.f; // leave room for heart/dot column
 
-                    // Fish name (selectable, coloured by rarity)
-                    ImGui::TableSetColumnIndex(2);
-                    {
-                        char selId[128];
-                        snprintf(selId, sizeof(selId), "%s##row%d", f.name, idx);
-                        ImGui::PushStyleColor(ImGuiCol_Text,
-                            RarityColor(GetFishRarity(f.itemId)));
-                        if (ImGui::Selectable(selId, g_SelectedFish == idx,
-                                ImGuiSelectableFlags_SpanAllColumns)) {
-                            g_SelectedFish   = idx;
-                            g_LastDetailFish = idx;
-                        }
-                        ImGui::PopStyleColor();
-                    }
+                    // Name in rarity colour
+                    ImU32 nameCol = IM_COL32((int)(rc.x*255),(int)(rc.y*255),(int)(rc.z*255),255);
+                    dl->AddText({tx, p.y + pad}, nameCol, f.name);
 
-                    ImGui::TableSetColumnIndex(3);
-                    ImGui::TextUnformatted(f.map ? f.map : "-");
+                    // Map (dimmed)
+                    dl->AddText({tx, p.y + pad + lineH + 2.f},
+                               IM_COL32(130,130,130,255), f.map ? f.map : "");
 
-                    ImGui::TableSetColumnIndex(4);
-                    if (g_AchTracker.hoarded && g_AchTracker.IsCaught(idx)) {
-                        ImVec2 cp = ImGui::GetCursorScreenPos();
-                        ImGui::Dummy({16.f, ImGui::GetTextLineHeight()});
-                        DrawCheckmark(ImGui::GetWindowDrawList(),
-                                      {cp.x + 8.f, cp.y + ImGui::GetTextLineHeight() * 0.5f},
-                                      10.f, IM_COL32(80, 210, 80, 255));
-                    }
+                    // Attribute chips: bait · time · water
+                    float chipY = p.y + pad + lineH * 2.f + 5.f;
+                    float chipX = tx;
+                    auto chip = [&](const char* text, ImU32 iconCol, auto drawIcon) {
+                        ImVec2 tsz = ImGui::CalcTextSize(text);
+                        float iconW = tsz.y;
+                        float cw = 3.f+iconW+3.f+tsz.x+3.f, ch = tsz.y+2.f;
+                        if (chipX + cw > tRightEdge) return;
+                        dl->AddRectFilled({chipX,chipY},{chipX+cw,chipY+ch},
+                                         IM_COL32(4,16,40,220), 2.f);
+                        drawIcon(dl, {chipX+3.f,chipY+1.f}, iconW, iconCol);
+                        dl->AddText({chipX+3.f+iconW+3.f,chipY+1.f},
+                                   IM_COL32(153,153,153,255), text);
+                        chipX += cw + 3.f;
+                    };
+                    chip(BAIT_NAMES[(int)f.bait], IM_COL32(200,160,60,255),
+                        [&](ImDrawList* d, ImVec2 ip, float s, ImU32 c) {
+                            if (const BaitInfo* bi = GetBaitInfo(f.bait)) {
+                                Texture_t* tx = CastAway::IconManager::GetIcon(bi->itemId);
+                                if (tx && tx->Resource) {
+                                    d->AddImage((ImTextureID)(uintptr_t)tx->Resource,
+                                               {ip.x, ip.y}, {ip.x+s, ip.y+s});
+                                    return;
+                                }
+                                CastAway::IconManager::RequestIcon(bi->itemId, bi->iconUrl);
+                            }
+                            DrawChipBaitIcon(d, ip, s, c);
+                        });
+                    chip(TimeOfDayName(f.time), ChipTimeColor(f.time),
+                        [&](ImDrawList* d, ImVec2 ip, float s, ImU32 c){
+                            DrawChipTimeIcon(d, ip, s, f.time, c); });
+                    chip(WaterTypeName(f.water), ChipWaterColor(f.water),
+                        [&](ImDrawList* d, ImVec2 ip, float s, ImU32 c){
+                            DrawChipWaterIcon(d, ip, s, f.water, c); });
+
+                    // Heart (solid — red if fav, grey if not)
+                    bool fav = IsFavourite(f.name);
+                    DrawHeart(dl, {hx, hy}, 11.f,
+                             fav ? IM_COL32(210, 50, 50, 255)
+                                 : IM_COL32(110, 110, 110, 200), true);
+
+                    // Caught dot (below heart)
+                    bool caught = g_AchTracker.hoarded && g_AchTracker.IsCaught(idx);
+                    dl->AddCircleFilled({hx, hy + 18.f}, 4.f,
+                                       caught ? IM_COL32(76,175,80,255)
+                                              : IM_COL32(55,55,55,255));
+
+                    col = 1 - col;
                 }
-                ImGui::EndTable();
             }
+            ImGui::EndChild();
 
-            // Details panel — always visible, shows last viewed fish
+            // Details panel — ocean-tinted background, fish swim behind it too
             ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.02f, 0.08f, 0.23f, 0.97f));
             if (ImGui::BeginChild("##FishDetailsPanel", {detailsW, tableH}, true)) {
                 RenderFishDetails(g_LastDetailFish);
             }
             ImGui::EndChild();
+            ImGui::PopStyleColor();
 
             ImGui::EndTabItem();
         }
@@ -1357,71 +1772,115 @@ void AddonRender() {
         // ===== FAVOURITES TAB =====
         if (ImGui::BeginTabItem("Favourites")) {
             float favH = ImGui::GetContentRegionAvail().y - 4.f;
-            ImGuiTableFlags fflags =
-                ImGuiTableFlags_RowBg         |
-                ImGuiTableFlags_BordersInnerV |
-                ImGuiTableFlags_ScrollY       |
-                ImGuiTableFlags_SizingStretchProp;
+            ImVec2 favCreMn = ImGui::GetCursorScreenPos();
+            ImVec2 favCreMx = {favCreMn.x + ImGui::GetContentRegionAvail().x, favCreMn.y + favH};
 
-            if (ImGui::BeginTable("##FavTable", 3, fflags, {-1.f, favH})) {
-                ImGui::TableSetupScrollFreeze(0, 1);
-                ImGui::TableSetupColumn("##Star", ImGuiTableColumnFlags_WidthFixed, 20.f);
-                ImGui::TableSetupColumn("Fish",   ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("Map",    ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableHeadersRow();
+            if (ImGui::BeginChild("##FavCards", {-1.f, favH}, false)) {
+                ImDrawList* dl  = ImGui::GetWindowDrawList();
+                ImVec2 fTankMn = ImGui::GetWindowPos();
+                ImVec2 fTankMx = {fTankMn.x + ImGui::GetWindowWidth(), fTankMn.y + ImGui::GetWindowHeight()};
+                DrawFishtankBg(dl, fTankMn, fTankMx);
+                DrawFishtankCreatures(dl, favCreMn, favCreMx);
+                const float fLineH = ImGui::GetTextLineHeight();
+                const float fGap   = cardGap;
+                const float fCardW = floorf((ImGui::GetContentRegionAvail().x - fGap) / 2.f);
+                int fcol = 0;
 
                 for (int i = 0; i < FISH_COUNT; i++) {
                     const Fish& f = FISH_TABLE[i];
                     if (!IsFavourite(f.name)) continue;
 
-                    ImGui::TableNextRow();
+                    if (fcol == 1) ImGui::SameLine(fCardW + fGap);
 
-                    ImGui::TableSetColumnIndex(0);
-                    {
-                        char btnId[32];
-                        snprintf(btnId, sizeof(btnId), "##fheart%d", i);
-                        ImVec2 pos = ImGui::GetCursorScreenPos();
-                        ImGui::InvisibleButton(btnId, {18.f, 18.f});
-                        if (ImGui::IsItemClicked()) ToggleFavourite(f.name);
-                        DrawHeart(ImGui::GetWindowDrawList(),
-                                  {pos.x + 9.f, pos.y + 9.f},
-                                  11.f, IM_COL32(210, 50, 50, 255), true);
+                    ImVec2 p = ImGui::GetCursorScreenPos();
+                    char cardId[32];
+                    snprintf(cardId, sizeof(cardId), "##fcard%d", i);
+                    ImGui::InvisibleButton(cardId, {fCardW, cardH});
+                    bool cardClicked = ImGui::IsItemClicked();
+                    bool hovered     = ImGui::IsItemHovered();
+
+                    float hx = p.x + fCardW - 14.f, hy = p.y + 14.f;
+                    bool heartHit     = ImGui::IsMouseHoveringRect({hx-10.f,hy-10.f},{hx+10.f,hy+10.f});
+                    bool heartClicked = heartHit && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+                    if (heartClicked) ToggleFavourite(f.name);
+                    else if (cardClicked) {
+                        g_SelectedFish = i; g_LastDetailFish = i; g_SwitchToDatabase = true;
                     }
 
-                    ImGui::TableSetColumnIndex(1);
-                    {
-                        char selId[128];
-                        snprintf(selId, sizeof(selId), "%s##frow%d", f.name, i);
-                        if (ImGui::Selectable(selId, g_SelectedFish == i,
-                                ImGuiSelectableFlags_SpanAllColumns)) {
-                            g_SelectedFish   = i;
-                            g_LastDetailFish = i;
-                            g_SwitchToDatabase = true;
+                    ImU32 bgCol = hovered ? IM_COL32(3, 32, 82, 230) : IM_COL32(2, 20, 58, 215);
+                    dl->AddRectFilled(p, {p.x+fCardW, p.y+cardH}, bgCol, 4.f);
+
+                    ImVec4 rc = RarityColor(GetFishRarity(f.itemId));
+                    ImU32 rarityCol = IM_COL32((int)(rc.x*255),(int)(rc.y*255),(int)(rc.z*255),255);
+                    ImU32 rarityTint = IM_COL32((int)(rc.x*255),(int)(rc.y*255),(int)(rc.z*255), 40);
+                    dl->AddRectFilledMultiColor(p, {p.x+fCardW*0.6f, p.y+cardH},
+                                               rarityTint, IM_COL32(0,0,0,0),
+                                               IM_COL32(0,0,0,0), rarityTint);
+                    dl->AddRectFilled(p, {p.x+borderSz, p.y+cardH}, rarityCol, 4.f, ImDrawCornerFlags_Left);
+                    dl->AddRect(p, {p.x+fCardW, p.y+cardH}, IM_COL32(20,60,110,180), 4.f);
+
+                    float ix = p.x+borderSz+pad, iy = p.y+(cardH-iconSz)*0.5f;
+                    if (f.itemId != 0) {
+                        Texture_t* tex = CastAway::IconManager::GetIcon(f.itemId);
+                        if (tex && tex->Resource)
+                            dl->AddImage((ImTextureID)(uintptr_t)tex->Resource,
+                                        {ix,iy},{ix+iconSz,iy+iconSz});
+                        else {
+                            CastAway::IconManager::RequestIcon(f.itemId, f.iconUrl ? f.iconUrl : "");
+                            dl->AddRectFilled({ix,iy},{ix+iconSz,iy+iconSz},IM_COL32(30,30,30,200),3.f);
                         }
                     }
 
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::TextUnformatted(f.map ? f.map : "-");
+                    float tx = ix+iconSz+pad, tRightEdge = p.x+fCardW-26.f;
+                    dl->AddText({tx, p.y+pad}, rarityCol, f.name);
+                    dl->AddText({tx, p.y+pad+fLineH+2.f}, IM_COL32(130,130,130,255), f.map ? f.map : "");
+
+                    float chipY = p.y+pad+fLineH*2.f+5.f, chipX = tx;
+                    auto chip = [&](const char* text, ImU32 iconCol, auto drawIcon) {
+                        ImVec2 tsz = ImGui::CalcTextSize(text);
+                        float iconW = tsz.y, cw = 3.f+iconW+3.f+tsz.x+3.f, ch = tsz.y+2.f;
+                        if (chipX + cw > tRightEdge) return;
+                        dl->AddRectFilled({chipX,chipY},{chipX+cw,chipY+ch},IM_COL32(34,34,34,255),2.f);
+                        drawIcon(dl, {chipX+3.f,chipY+1.f}, iconW, iconCol);
+                        dl->AddText({chipX+3.f+iconW+3.f,chipY+1.f},IM_COL32(153,153,153,255),text);
+                        chipX += cw + 3.f;
+                    };
+                    chip(BAIT_NAMES[(int)f.bait], IM_COL32(200,160,60,255),
+                        [&](ImDrawList* d, ImVec2 ip, float s, ImU32 c) {
+                            if (const BaitInfo* bi = GetBaitInfo(f.bait)) {
+                                Texture_t* tx = CastAway::IconManager::GetIcon(bi->itemId);
+                                if (tx && tx->Resource) {
+                                    d->AddImage((ImTextureID)(uintptr_t)tx->Resource,
+                                               {ip.x, ip.y}, {ip.x+s, ip.y+s});
+                                    return;
+                                }
+                                CastAway::IconManager::RequestIcon(bi->itemId, bi->iconUrl);
+                            }
+                            DrawChipBaitIcon(d, ip, s, c);
+                        });
+                    chip(TimeOfDayName(f.time), ChipTimeColor(f.time),
+                        [&](ImDrawList* d, ImVec2 ip, float s, ImU32 c){
+                        DrawChipTimeIcon(d, ip, s, f.time, c); });
+                    chip(WaterTypeName(f.water), ChipWaterColor(f.water),
+                        [&](ImDrawList* d, ImVec2 ip, float s, ImU32 c){
+                            DrawChipWaterIcon(d, ip, s, f.water, c); });
+
+                    DrawHeart(dl, {hx,hy}, 11.f, IM_COL32(210,50,50,255), true);
+                    bool caught = g_AchTracker.hoarded && g_AchTracker.IsCaught(i);
+                    dl->AddCircleFilled({hx, hy+18.f}, 4.f,
+                                       caught ? IM_COL32(76,175,80,255) : IM_COL32(55,55,55,255));
+
+                    fcol = 1 - fcol;
                 }
-                ImGui::EndTable();
             }
+            ImGui::EndChild();
 
             ImGui::EndTabItem();
         }
 
         // ===== MAP TAB =====
-        if (ImGui::BeginTabItem("Map")) {
-            if (g_SelectedFish < 0) {
-                ImGui::TextDisabled(
-                    "Select a fish in the Database tab to highlight its fishing holes.");
-                ImGui::Spacing();
-            }
-            g_MapPanel.Render(g_SelectedFish, mumbleMapId, game_x, game_z);
-            ImGui::EndTabItem();
-        }
-
         // ===== ACHIEVEMENTS TAB =====
-        if (ImGui::BeginTabItem("Achievements")) {
+        if (ImGui::BeginTabItem("Collections")) {
             if (!g_AchTracker.hoarded) {
                 ImGui::TextWrapped("Requires the Hoard & Seek addon to be installed and configured.");
                 ImGui::TextDisabled("Install Hoard & Seek, then restart GW2.");
@@ -1459,53 +1918,67 @@ void AddonRender() {
                     if (!open) continue;
 
                     ImGui::Indent();
-                    for (int fi = 0; fi < FISH_COUNT; ++fi) {
-                        const Fish& f = FISH_TABLE[fi];
-                        if (f.achievementId != col.achievementId) continue;
+                    {
+                        const float achGap    = 4.f;
+                        const float achCardH  = 44.f;
+                        const float achIconSz = 24.f;
+                        const float achStartX = ImGui::GetCursorPosX();
+                        const float achW = floorf((ImGui::GetContentRegionAvail().x - achGap * 2.f) / 3.f);
+                        const float achLH = ImGui::GetTextLineHeight();
+                        int achCol = 0;
 
-                        bool caught = st->done || (st->bitsKnown && fi < FISH_COUNT &&
-                                      f.bitIndex < 64 && st->caughtBits[f.bitIndex]);
+                        for (int fi = 0; fi < FISH_COUNT; ++fi) {
+                            const Fish& f = FISH_TABLE[fi];
+                            if (f.achievementId != col.achievementId) continue;
 
-                        // Fish icon (16x16)
-                        if (f.itemId != 0) {
-                            Texture_t* fish_icon = CastAway::IconManager::GetIcon(f.itemId);
-                            if (fish_icon && fish_icon->Resource)
-                                ImGui::Image(fish_icon->Resource, {16, 16});
-                            else {
-                                CastAway::IconManager::RequestIcon(f.itemId, f.iconUrl ? f.iconUrl : "");
-                                ImGui::Dummy({16, 16});
-                            }
-                            ImGui::SameLine();
-                        }
+                            bool caught = st->done || (st->bitsKnown &&
+                                          f.bitIndex < 64 && st->caughtBits[f.bitIndex]);
 
-                        if (caught) {
-                            // Drawn checkmark + dimmed name
-                            ImVec2 cp = ImGui::GetCursorScreenPos();
-                            float  lh = ImGui::GetTextLineHeight();
-                            ImGui::Dummy({lh, lh});
-                            DrawCheckmark(ImGui::GetWindowDrawList(),
-                                          {cp.x + lh * 0.5f, cp.y + lh * 0.5f},
-                                          lh * 0.55f, IM_COL32(80, 180, 80, 200));
-                            ImGui::SameLine();
-                            ImGui::TextDisabled("%s", f.name);
-                        } else {
-                            // Clickable — select fish and jump to Database tab
-                            char label[128];
-                            snprintf(label, sizeof(label), "%s  (%s / %s)##achfish%d",
-                                     f.name, BAIT_NAMES[(int)f.bait], TimeOfDayName(f.time), fi);
-                            if (ImGui::Selectable(label, false)) {
-                                g_SelectedFish     = fi;
-                                g_LastDetailFish   = fi;
+                            if (achCol > 0) ImGui::SameLine(achStartX + achCol * (achW + achGap));
+
+                            ImVec2 ap = ImGui::GetCursorScreenPos();
+                            char achId[32];
+                            snprintf(achId, sizeof(achId), "##achcard%d", fi);
+                            ImGui::InvisibleButton(achId, {achW, achCardH});
+                            if (ImGui::IsItemClicked()) {
+                                g_SelectedFish = fi; g_LastDetailFish = fi;
                                 g_SwitchToDatabase = true;
                             }
+                            bool achHov = ImGui::IsItemHovered();
+
+                            ImDrawList* adl = ImGui::GetWindowDrawList();
+                            ImU32 achBg = achHov ? IM_COL32(50,50,52,255) : IM_COL32(45,45,48,255);
+                            adl->AddRectFilled(ap, {ap.x+achW, ap.y+achCardH}, achBg, 4.f);
+
+                            ImVec4 arc = RarityColor(GetFishRarity(f.itemId));
+                            ImU32 aRar = IM_COL32((int)(arc.x*255),(int)(arc.y*255),(int)(arc.z*255),255);
+                            adl->AddRectFilled(ap, {ap.x+3.f, ap.y+achCardH}, aRar, 4.f, ImDrawCornerFlags_Left);
+                            adl->AddRect(ap, {ap.x+achW, ap.y+achCardH}, IM_COL32(60,60,60,200), 4.f);
+
+                            float aix = ap.x+3.f+4.f, aiy = ap.y+(achCardH-achIconSz)*0.5f;
+                            if (f.itemId != 0) {
+                                Texture_t* ti = CastAway::IconManager::GetIcon(f.itemId);
+                                if (ti && ti->Resource)
+                                    adl->AddImage((ImTextureID)(uintptr_t)ti->Resource,
+                                                 {aix,aiy},{aix+achIconSz,aiy+achIconSz});
+                                else {
+                                    CastAway::IconManager::RequestIcon(f.itemId, f.iconUrl ? f.iconUrl : "");
+                                    adl->AddRectFilled({aix,aiy},{aix+achIconSz,aiy+achIconSz},IM_COL32(30,30,30,200),3.f);
+                                }
+                            }
+
+                            float atx = aix+achIconSz+4.f, atRE = ap.x+achW-18.f;
+                            adl->AddText({atx, ap.y+5.f}, aRar, f.name);
+                            adl->AddText({atx, ap.y+5.f+achLH+2.f}, IM_COL32(130,130,130,255), f.map ? f.map : "");
+
+                            // Caught dot (right side)
+                            adl->AddCircleFilled({ap.x+achW-9.f, ap.y+achCardH*0.5f}, 5.f,
+                                               caught ? IM_COL32(76,175,80,255) : IM_COL32(55,55,55,255));
+
+                            if (++achCol >= 3) achCol = 0;
                         }
                     }
                     ImGui::Unindent();
-                }
-                // Bait shopping list collapsible section (Task 15)
-                ImGui::Spacing();
-                if (ImGui::CollapsingHeader("Bait Shopping List")) {
-                    RenderBaitShoppingList();
                 }
             }
             ImGui::EndTabItem();
@@ -1515,6 +1988,19 @@ void AddonRender() {
     }
 
     ImGui::End();
+
+    // --- Map floating window ---
+    if (g_MapWindowVisible) {
+        ImGui::SetNextWindowSize({640.f, 520.f}, ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Cast Away — Map##CastAwayMapWindow", &g_MapWindowVisible,
+                         ImGuiWindowFlags_NoScrollbar)) {
+            if (g_LastDetailFish < 0)
+                ImGui::TextDisabled("Select a fish in the database to show its fishing holes.");
+            else
+                g_MapPanel.Render(g_LastDetailFish, mumbleMapId, game_x, game_z);
+        }
+        ImGui::End();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1525,6 +2011,11 @@ void AddonOptions() {
     ImGui::Separator();
 
     ImGui::Checkbox("Show time overlay", &g_OverlayVisible);
+    ImGui::SameLine();
+    ImGui::Checkbox("Lock position##overlay", &g_OverlayLocked);
+    ImGui::SameLine();
+    if (ImGui::Button("Reset position##overlay"))
+        g_OverlayPos = {-1.f, -1.f};
 
     bool prevQA = g_ShowQAIcon;
     ImGui::Checkbox("Show quick access icon", &g_ShowQAIcon);
@@ -1577,7 +2068,7 @@ void AddonLoad(AddonAPI_t* aApi) {
     CastAway::IconManager::Initialize(APIDefs);
     g_AchTracker.Init(APIDefs);
 
-    std::string dataDir = std::string(APIDefs->Paths_GetAddonDirectory("cast_away"));
+    std::string dataDir = std::string(APIDefs->Paths_GetAddonDirectory("CastAway"));
     std::filesystem::create_directories(dataDir);
     g_MapPanel.Init(APIDefs, dataDir);
 
