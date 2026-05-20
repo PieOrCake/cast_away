@@ -1027,12 +1027,14 @@ static void CheckTimeWindowNotifications() {
 
     // Merge into any existing active notification, or create a new one
     if (g_FavNotifActive && !g_FavNotif.dismissed) {
+        bool added = false;
         for (auto& e : triggered) {
             bool already = false;
             for (auto& ex : g_FavNotif.fish)
                 if (ex.fishIdx == e.fishIdx) { already = true; break; }
-            if (!already) g_FavNotif.fish.push_back(e);
+            if (!already) { g_FavNotif.fish.push_back(e); added = true; }
         }
+        if (added) g_FavNotif.createdAt = (float)ImGui::GetTime();
     } else {
         g_FavNotif          = FavNotification{};
         g_FavNotif.fish     = triggered;
