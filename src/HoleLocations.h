@@ -30,6 +30,7 @@ enum class HoleWater : uint8_t {
     Volcanic = 21,
     Volcanicnoxious = 22,
     Wreckage = 23,
+    Any      = 255,
 };
 
 struct HoleLocation {

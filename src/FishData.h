@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "HoleLocations.h"
 #include <ctime>
 
 // Bait types — index 0 = Any (no special bait)
@@ -53,6 +54,7 @@ struct Fish {
     const char* filletIconUrl; // nullptr if none
     const char* masteryRequired; // nullptr if none
     const char* wikiSlug;
+    HoleWater   holeType = HoleWater::Any;
 };
 
 struct Waypoint {
