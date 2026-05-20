@@ -512,6 +512,7 @@ static void SaveSettings() {
         j["overlay_pos_y"]       = g_OverlayPos.y;
         j["show_qa_icon"]        = g_ShowQAIcon;
         j["notify_lead_seconds"] = g_NotifyLeadSeconds;
+        j["auto_dismiss_seconds"] = g_AutoDismissSeconds;
 
         std::string path = SettingsPath();
         std::filesystem::create_directories(
@@ -542,6 +543,7 @@ static void LoadSettings() {
         }
         if (j.contains("show_qa_icon"))        g_ShowQAIcon        = j["show_qa_icon"].get<bool>();
         if (j.contains("notify_lead_seconds")) g_NotifyLeadSeconds = j["notify_lead_seconds"].get<int>();
+        if (j.contains("auto_dismiss_seconds")) g_AutoDismissSeconds = j["auto_dismiss_seconds"].get<int>();
     } catch (...) {}
 }
 
@@ -2151,6 +2153,7 @@ void AddonOptions() {
     }
 
     ImGui::SliderInt("Notify before window (seconds)", &g_NotifyLeadSeconds, 30, 600);
+    ImGui::SliderInt("Auto-dismiss notification (0 = never)", &g_AutoDismissSeconds, 0, 600);
     ImGui::Spacing();
     ImGui::TextDisabled("Toggle: Ctrl+Shift+F");
 }
