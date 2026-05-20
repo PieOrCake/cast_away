@@ -1335,6 +1335,9 @@ static void RenderFishDetails(int fishIdx) {
 
         row("Map",        f.map);
         row("Water",      WaterTypeName(f.water));
+        row("Hole",       f.holeType != HoleWater::Any
+                              ? HoleWaterName(f.holeType)
+                              : "-");
         row("Bait",       BAIT_NAMES[(int)f.bait]);
         row("Time",       TimeOfDayName(f.time));
         row("Collection", f.collection ? f.collection : "-");
