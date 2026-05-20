@@ -1473,9 +1473,14 @@ static void RenderFavNotification() {
     const float W   = 300.f;
 
     // Compute height: header + per-fish rows (2 text lines + button) + dismiss button + padding
-    const float ROW_H  = ImGui::GetTextLineHeightWithSpacing() * 2.f + 26.f + 6.f;
-    const float FOOT_H = 30.f;
-    const float H      = 28.f + (float)g_FavNotif.fish.size() * ROW_H + FOOT_H + PAD;
+    const float lineH  = ImGui::GetTextLineHeightWithSpacing();
+    const float btnH   = ImGui::GetFrameHeight();
+    const float ROW_H  = lineH * 2.f + btnH + 6.f;
+    const float FOOT_H = btnH + 8.f;
+    const float HEAD_H = lineH + 6.f;  // header text + separator
+    const int   MAX_FISH = 5;
+    const int   fishCount = (int)std::min((int)g_FavNotif.fish.size(), MAX_FISH);
+    const float H      = HEAD_H + (float)fishCount * ROW_H + FOOT_H + PAD;
 
     ImGui::SetNextWindowPos(
         {io.DisplaySize.x - W - PAD, io.DisplaySize.y - H - PAD},
@@ -1495,8 +1500,11 @@ static void RenderFavNotification() {
         ImGui::TextUnformatted("Favourite fish incoming!");
         ImGui::Separator();
 
+        int shown = 0;
         for (auto& entry : g_FavNotif.fish) {
+            if (shown >= MAX_FISH) break;
             if (entry.fishIdx < 0 || entry.fishIdx >= FISH_COUNT) continue;
+            shown++;
             const Fish& f = FISH_TABLE[entry.fishIdx];
 
             // Name in rarity colour
@@ -1522,15 +1530,19 @@ static void RenderFavNotification() {
             }
             ImGui::Spacing();
         }
+        int total = (int)g_FavNotif.fish.size();
+        if (total > MAX_FISH) {
+            ImGui::TextDisabled("...and %d more", total - MAX_FISH);
+        }
 
         ImGui::Separator();
         float btnW = 80.f;
-        ImGui::SetCursorPosX(W - btnW - 8.f);
+        ImGui::SetCursorPosX(ImGui::GetWindowWidth() - btnW - ImGui::GetStyle().WindowPadding.x);
         if (ImGui::Button("Dismiss##favnotif", {btnW, 0.f}))
             g_FavNotif.dismissed = true;
     }
-    ImGui::End();
     ImGui::PopStyleVar();
+    ImGui::End();
 }
 
 // ---------------------------------------------------------------------------
