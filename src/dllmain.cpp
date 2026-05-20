@@ -421,8 +421,9 @@ void AddonOptions();
 static AddonAPI_t*       APIDefs  = nullptr;
 static AddonDefinition_t AddonDef{};
 static bool g_WindowVisible  = false;
-static bool   g_OverlayVisible = false;
-static bool   g_OverlayLocked  = true;
+static bool   g_OverlayVisible  = false;
+static bool   g_OverlayLocked   = true;
+static NexusLinkData_t* g_NexusLink = nullptr;
 static ImVec2 g_OverlayPos     = {-1.f, -1.f};  // sentinel: computed on first render
 static bool g_MapWindowVisible = false;
 static bool g_ShowQAIcon     = true;
@@ -434,7 +435,6 @@ static int  g_LastDetailFish  =  0;  // persists last viewed fish; never goes ba
 static char g_SearchBuf[128]  = {};
 static int  g_FilterBait      = 0;
 static int  g_FilterTime      = 0;
-static int  g_FilterWater     = -1;
 static bool g_ShowCurrentOnly = false;
 static bool g_MissingOnly     = false;
 static std::string g_FilterMap;
@@ -585,9 +585,6 @@ static bool FishMatchesFilter(int fishIdx) {
     } else if (g_FilterTime > 0 && f.time != TimeOfDay::Any && (int)f.time != g_FilterTime) {
         return false;
     }
-
-    // Water type
-    if (g_FilterWater >= 0 && (int)f.water != g_FilterWater) return false;
 
     // Map filter
     if (!g_FilterMap.empty() && g_FilterMap != std::string(f.map ? f.map : "")) return false;
@@ -747,7 +744,7 @@ static void RenderDayNightBar(float windowWidth) {
 // Conditions overlay — mini day/night bar
 // ---------------------------------------------------------------------------
 static void RenderOverlay() {
-    if (!g_OverlayVisible) return;
+    if (!g_OverlayVisible || !(g_NexusLink && g_NexusLink->IsGameplay)) return;
 
     ImGuiIO& io = ImGui::GetIO();
 
@@ -1499,7 +1496,7 @@ static void FavNotifBeginWindow(const char* id, int fishCount, bool locked,
         ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoBringToFrontOnFocus;
     if (locked)
-        flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs;
+        flags |= ImGuiWindowFlags_NoMove;
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.f, 8.f));
     ImGui::Begin(id, nullptr, flags);
@@ -1710,6 +1707,19 @@ void AddonRender() {
     RenderToasts();
     RenderFavNotification();
 
+    // --- Map floating window (independent of main window visibility) ---
+    if (g_MapWindowVisible) {
+        ImGui::SetNextWindowSize({640.f, 520.f}, ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Cast Away — Map##CastAwayMapWindow", &g_MapWindowVisible,
+                         ImGuiWindowFlags_NoScrollbar)) {
+            if (g_LastDetailFish < 0)
+                ImGui::TextDisabled("Select a fish in the database to show its fishing holes.");
+            else
+                g_MapPanel.Render(g_LastDetailFish, mumbleMapId, game_x, game_z);
+        }
+        ImGui::End();
+    }
+
     if (!g_WindowVisible) return;
 
     // --- Main window ---
@@ -1792,18 +1802,6 @@ void AddonRender() {
             }
             ImGui::SameLine();
 
-            // Water type filter: combo index offset by +1 to account for "All Water" at index 0
-            static const char* waterOpts[] = {"All Water","Freshwater","Saltwater","Special"};
-            int waterComboIdx = g_FilterWater + 1; // -1 → 0, 0 → 1, 1 → 2, 2 → 3
-            ImGui::SetNextItemWidth(95.f);
-            if (ImGui::BeginCombo("##Water", waterOpts[waterComboIdx])) {
-                for (int i = 0; i < 4; i++)
-                    if (ImGui::Selectable(waterOpts[i], waterComboIdx == i))
-                        g_FilterWater = i - 1;
-                ImGui::EndCombo();
-            }
-            ImGui::SameLine();
-
             if (ImGui::SmallButton("Now")) {
                 g_ShowCurrentOnly = true;
                 g_FilterMap = g_CurrentMapName;
@@ -1813,7 +1811,6 @@ void AddonRender() {
                 g_SearchBuf[0]    = '\0';
                 g_FilterBait      = 0;
                 g_FilterTime      = 0;
-                g_FilterWater     = -1;
                 g_ShowCurrentOnly = false;
                 g_MissingOnly     = false;
                 g_FilterMap.clear();
@@ -2235,18 +2232,6 @@ void AddonRender() {
 
     ImGui::End();
 
-    // --- Map floating window ---
-    if (g_MapWindowVisible) {
-        ImGui::SetNextWindowSize({640.f, 520.f}, ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Cast Away — Map##CastAwayMapWindow", &g_MapWindowVisible,
-                         ImGuiWindowFlags_NoScrollbar)) {
-            if (g_LastDetailFish < 0)
-                ImGui::TextDisabled("Select a fish in the database to show its fishing holes.");
-            else
-                g_MapPanel.Render(g_LastDetailFish, mumbleMapId, game_x, game_z);
-        }
-        ImGui::End();
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2321,7 +2306,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
     AddonDef.Version.Revision = V_REVISION;
     AddonDef.Author           = "PieOrCake.7635";
     AddonDef.Description      =
-        "Fishing companion: searchable fish database with time-of-day, bait info, and interactive map.";
+        "Fishing companion: searchable fish database with time-of-day, bait info, and interactive map. Optional: Hoard & Seek and Events:Alerts.";
     AddonDef.Load             = AddonLoad;
     AddonDef.Unload           = AddonUnload;
     AddonDef.Flags            = AF_None;
@@ -2340,6 +2325,8 @@ void AddonLoad(AddonAPI_t* aApi) {
     ImGui::SetAllocatorFunctions(
         (void*(*)(size_t, void*))APIDefs->ImguiMalloc,
         (void(*)(void*, void*))APIDefs->ImguiFree);
+
+    g_NexusLink = (NexusLinkData_t*)APIDefs->DataLink_Get(DL_NEXUS_LINK);
 
     CastAway::IconManager::Initialize(APIDefs);
     g_AchTracker.Init(APIDefs);
