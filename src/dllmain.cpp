@@ -2127,6 +2127,17 @@ void AddonRender() {
         // ===== MAP TAB =====
         // ===== ACHIEVEMENTS TAB =====
         if (ImGui::BeginTabItem("Collections")) {
+            float colH = ImGui::GetContentRegionAvail().y - 4.f;
+            ImVec2 colCreMn = ImGui::GetCursorScreenPos();
+            ImVec2 colCreMx = {colCreMn.x + ImGui::GetContentRegionAvail().x, colCreMn.y + colH};
+
+            if (ImGui::BeginChild("##CollectionsPanel", {-1.f, colH}, false)) {
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                ImVec2 colTankMn = ImGui::GetWindowPos();
+                ImVec2 colTankMx = {colTankMn.x + ImGui::GetWindowWidth(), colTankMn.y + ImGui::GetWindowHeight()};
+                DrawFishtankBg(dl, colTankMn, colTankMx);
+                DrawFishtankCreatures(dl, colCreMn, colCreMx);
+
             if (!g_AchTracker.hoarded) {
                 ImGui::TextWrapped("Requires the Hoard & Seek addon to be installed and configured.");
                 ImGui::TextDisabled("Install Hoard & Seek, then restart GW2.");
@@ -2267,6 +2278,8 @@ void AddonRender() {
                     ImGui::Unindent();
                 }
             }
+            } // if (BeginChild)
+            ImGui::EndChild();
             ImGui::EndTabItem();
         }
 
