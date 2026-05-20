@@ -978,6 +978,16 @@ static void UpdateHoleDwellTimers(int mapId, float gx, float gz) {
 // ---------------------------------------------------------------------------
 // Time window notifications
 // ---------------------------------------------------------------------------
+static uint32_t MapIdForFishRegion(const char* regionName) {
+    if (!regionName) return 0;
+    for (int i = 0; i < HOLE_COUNT; i++) {
+        const FishingHole& h = HOLE_TABLE[i];
+        if (h.map && strcmp(h.map, regionName) == 0)
+            return h.mapId;
+    }
+    return 0;
+}
+
 static void CheckTimeWindowNotifications() {
     static auto lastCheck = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
@@ -985,7 +995,7 @@ static void CheckTimeWindowNotifications() {
         return;
     lastCheck = now;
 
-    uint32_t currentCycle = GetTyrianSeconds() / 60;
+    int64_t wallCycle = (int64_t)(time(nullptr) / 7200);
 
     std::vector<std::string> favsCopy;
     {
@@ -993,6 +1003,7 @@ static void CheckTimeWindowNotifications() {
         favsCopy = g_Favourites;
     }
 
+    std::vector<FavFishEntry> triggered;
     for (int i = 0; i < FISH_COUNT; i++) {
         const Fish& f = FISH_TABLE[i];
         if (f.time == TimeOfDay::Any) continue;
@@ -1002,16 +1013,32 @@ static void CheckTimeWindowNotifications() {
         if (!fav) continue;
 
         uint32_t secs = SecondsUntilPhase(f.time);
-        if (secs > (uint32_t)g_NotifyLeadSeconds) continue;
+        // secs == 0 means the phase just started; skip (already-in-window rule)
+        if (secs == 0 || secs > (uint32_t)g_NotifyLeadSeconds) continue;
 
-        auto it = g_LastNotifiedCycle.find(i);
-        if (it != g_LastNotifiedCycle.end() && it->second == currentCycle) continue;
-        g_LastNotifiedCycle[i] = currentCycle;
+        auto it = g_LastNotifiedCycleWall.find(i);
+        if (it != g_LastNotifiedCycleWall.end() && it->second == wallCycle) continue;
+        g_LastNotifiedCycleWall[i] = wallCycle;
 
-        char msg[128], sub[128];
-        snprintf(msg, sizeof(msg), "%s window starting soon!", TimeOfDayName(f.time));
-        snprintf(sub, sizeof(sub), "%s - %um %02us", f.name, secs / 60, secs % 60);
-        PushToast(msg, sub);
+        triggered.push_back({i, MapIdForFishRegion(f.map)});
+    }
+
+    if (triggered.empty()) return;
+
+    // Merge into any existing active notification, or create a new one
+    if (g_FavNotifActive && !g_FavNotif.dismissed) {
+        for (auto& e : triggered) {
+            bool already = false;
+            for (auto& ex : g_FavNotif.fish)
+                if (ex.fishIdx == e.fishIdx) { already = true; break; }
+            if (!already) g_FavNotif.fish.push_back(e);
+        }
+    } else {
+        g_FavNotif          = FavNotification{};
+        g_FavNotif.fish     = triggered;
+        g_FavNotif.createdAt = (float)ImGui::GetTime();
+        g_FavNotif.dismissed = false;
+        g_FavNotifActive    = true;
     }
 }
 
