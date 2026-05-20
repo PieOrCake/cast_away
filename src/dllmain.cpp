@@ -448,7 +448,7 @@ static bool g_SwitchToDatabase = false;
 
 static std::vector<int> g_SortedFishIndices;
 
-enum class FishSortMode { Default, Alphabetical, Rarity, MapName };
+enum class FishSortMode { Default, Alphabetical, Rarity };
 static FishSortMode g_SortMode = FishSortMode::Default;
 static bool         g_SortAsc  = true;
 static bool         g_SortDirty = true;
@@ -1464,10 +1464,6 @@ static void RebuildSortedFishIndices() {
                     if (cmp == 0) cmp = strcmp(fa.name ? fa.name : "", fb.name ? fb.name : "");
                     break;
                 }
-                case FishSortMode::MapName:
-                    cmp = strcmp(fa.map ? fa.map : "", fb.map ? fb.map : "");
-                    if (cmp == 0) cmp = strcmp(fa.name ? fa.name : "", fb.name ? fb.name : "");
-                    break;
                 default: break;
             }
             return g_SortAsc ? (cmp < 0) : (cmp > 0);
@@ -1828,10 +1824,10 @@ void AddonRender() {
             ImGui::SameLine();
 
             // Sort dropdown
-            static const char* sortLabels[] = { "Default", "A–Z", "Rarity", "Map" };
+            static const char* sortLabels[] = { "Default", "A–Z", "Rarity" };
             ImGui::SetNextItemWidth(90.f);
             if (ImGui::BeginCombo("##Sort", sortLabels[(int)g_SortMode])) {
-                for (int i = 0; i < 4; ++i) {
+                for (int i = 0; i < 3; ++i) {
                     if (ImGui::Selectable(sortLabels[i], (int)g_SortMode == i)) {
                         g_SortMode = (FishSortMode)i;
                         g_SortDirty = true;
