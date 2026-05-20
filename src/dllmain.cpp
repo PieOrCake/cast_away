@@ -437,7 +437,7 @@ static char g_SearchBuf[128]  = {};
 static int  g_FilterBait      = 0;
 static int  g_FilterTime      = 0;
 static bool g_ShowCurrentOnly = false;
-static bool g_MissingOnly     = false;
+static bool g_HideCaught      = false;
 static std::string g_FilterMap;
 static std::string g_CurrentMapName;
 
@@ -516,6 +516,7 @@ static void SaveSettings() {
         j["overlay_pos_y"]       = g_OverlayPos.y;
         j["show_qa_icon"]        = g_ShowQAIcon;
         j["show_fishtank"]       = g_ShowFishtank;
+        j["hide_caught"]         = g_HideCaught;
         j["notify_lead_seconds"]   = g_NotifyLeadSeconds;
         j["auto_dismiss_seconds"]  = g_AutoDismissSeconds;
         j["fav_notif_enabled"]     = g_FavNotifEnabled;
@@ -552,6 +553,7 @@ static void LoadSettings() {
         }
         if (j.contains("show_qa_icon"))        g_ShowQAIcon        = j["show_qa_icon"].get<bool>();
         if (j.contains("show_fishtank"))       g_ShowFishtank      = j["show_fishtank"].get<bool>();
+        if (j.contains("hide_caught"))         g_HideCaught        = j["hide_caught"].get<bool>();
         if (j.contains("notify_lead_seconds"))  g_NotifyLeadSeconds  = j["notify_lead_seconds"].get<int>();
         if (j.contains("auto_dismiss_seconds")) g_AutoDismissSeconds = j["auto_dismiss_seconds"].get<int>();
         if (j.contains("fav_notif_enabled"))    g_FavNotifEnabled    = j["fav_notif_enabled"].get<bool>();
@@ -592,8 +594,8 @@ static bool FishMatchesFilter(int fishIdx) {
     // Map filter
     if (!g_FilterMap.empty() && g_FilterMap != std::string(f.map ? f.map : "")) return false;
 
-    // Missing only — hide fish already caught
-    if (g_MissingOnly && g_AchTracker.hoarded && g_AchTracker.IsCaught(fishIdx)) return false;
+    // Hide caught — hide fish already caught
+    if (g_HideCaught && g_AchTracker.hoarded && g_AchTracker.IsCaught(fishIdx)) return false;
 
     return true;
 }
@@ -1818,11 +1820,11 @@ void AddonRender() {
                 g_FilterBait      = 0;
                 g_FilterTime      = 0;
                 g_ShowCurrentOnly = false;
-                g_MissingOnly     = false;
+                g_HideCaught      = false;
                 g_FilterMap.clear();
             }
             ImGui::SameLine();
-            ImGui::Checkbox("Missing only", &g_MissingOnly);
+            ImGui::Checkbox("Hide caught", &g_HideCaught);
             ImGui::SameLine();
 
             // Sort dropdown
