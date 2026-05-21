@@ -1987,9 +1987,29 @@ void AddonRender() {
                                             ? IM_COL32(40,150,65,220) : IM_COL32(55,55,60,200);
                             ImGui::SameLine(ImGui::GetContentRegionAvail().x - 160.f);
                             ImGui::SetNextItemWidth(150.f);
-                            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, gbarCol);
-                            ImGui::ProgressBar(gfrac, {150.f, ImGui::GetTextLineHeight()});
-                            ImGui::PopStyleColor();
+                            {
+                                float barW = 150.f;
+                                float barH = ImGui::GetTextLineHeight();
+                                ImVec2 bp = ImGui::GetCursorScreenPos();
+                                ImDrawList* pdl = ImGui::GetWindowDrawList();
+                                pdl->AddRectFilled(bp, {bp.x+barW, bp.y+barH},
+                                                   IM_COL32(6, 22, 50, 230), 2.f);
+                                if (gfrac > 0.f) {
+                                    pdl->AddRectFilledMultiColor(
+                                        bp, {bp.x + barW*gfrac, bp.y+barH},
+                                        IM_COL32( 30, 90,160,235), IM_COL32( 60,180,210,235),
+                                        IM_COL32( 60,180,210,235), IM_COL32( 30, 90,160,235));
+                                }
+                                pdl->AddRect(bp, {bp.x+barW, bp.y+barH},
+                                             IM_COL32(40,90,150,180), 2.f);
+                                char pct[16];
+                                snprintf(pct, sizeof(pct), "%d%%", (int)(gfrac*100));
+                                ImVec2 tsz = ImGui::CalcTextSize(pct);
+                                pdl->AddText({bp.x + (barW - tsz.x)*0.5f,
+                                              bp.y + (barH - tsz.y)*0.5f},
+                                             IM_COL32(240,245,255,255), pct);
+                                ImGui::Dummy({barW, barH});
+                            }
                         }
 
                         if (!gopen) continue;
