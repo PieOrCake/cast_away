@@ -1324,6 +1324,16 @@ static void DrawCheckmark(ImDrawList* dl, ImVec2 c, float s, ImU32 col) {
                 {c.x + s * 0.38f, c.y - s * 0.22f}, col, 1.8f);
 }
 
+static void DrawCaughtCheck(ImDrawList* dl, ImVec2 center, float r) {
+    dl->AddCircleFilled(center, r, IM_COL32(40, 130, 50, 235));
+    dl->AddCircle(center, r, IM_COL32(15, 60, 25, 255), 0, 1.5f);
+    ImVec2 a = {center.x - r*0.45f, center.y};
+    ImVec2 b = {center.x - r*0.10f, center.y + r*0.40f};
+    ImVec2 c = {center.x + r*0.50f, center.y - r*0.35f};
+    dl->AddLine(a, b, IM_COL32(255,255,255,255), 1.8f);
+    dl->AddLine(b, c, IM_COL32(255,255,255,255), 1.8f);
+}
+
 // ---------------------------------------------------------------------------
 // Fish details panel
 // ---------------------------------------------------------------------------
@@ -2067,8 +2077,10 @@ void AddonRender() {
                             DrawHeart(dl, {hx,hy}, 11.f,
                                       fav ? IM_COL32(210,50,50,255) : IM_COL32(110,110,110,200), true);
                             bool caught = g_AchTracker.hoarded && g_AchTracker.IsCaught(idx);
-                            dl->AddCircleFilled({hx, hy+18.f}, 4.f,
-                                                caught ? IM_COL32(76,175,80,255) : IM_COL32(55,55,55,255));
+                            if (caught) {
+                                dl->AddRectFilled(p, {p.x + gCardW, p.y + cardH}, IM_COL32(0,0,0,90), 4.f);
+                                DrawCaughtCheck(dl, {ix + iconSz - 4.f, iy + 4.f}, 7.f);
+                            }
 
                             gcardCol = 1 - gcardCol;
                         }
@@ -2199,11 +2211,12 @@ void AddonRender() {
                              fav ? IM_COL32(210, 50, 50, 255)
                                  : IM_COL32(110, 110, 110, 200), true);
 
-                    // Caught dot (below heart)
+                    // Caught overlay + badge
                     bool caught = g_AchTracker.hoarded && g_AchTracker.IsCaught(idx);
-                    dl->AddCircleFilled({hx, hy + 18.f}, 4.f,
-                                       caught ? IM_COL32(76,175,80,255)
-                                              : IM_COL32(55,55,55,255));
+                    if (caught) {
+                        dl->AddRectFilled(p, {p.x + cardW, p.y + cardH}, IM_COL32(0,0,0,90), 4.f);
+                        DrawCaughtCheck(dl, {ix + iconSz - 4.f, iy + 4.f}, 7.f);
+                    }
 
                     col = 1 - col;
                 }
