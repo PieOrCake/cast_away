@@ -1774,9 +1774,11 @@ void AddonRender() {
     CheckTimeWindowNotifications();
     CheckNearbyHoles(mumbleMapId, game_x, game_z);
 
+    if (g_FontBody) ImGui::PushFont(g_FontBody);
     RenderOverlay();
     RenderToasts();
     RenderFavNotification();
+    if (g_FontBody) ImGui::PopFont();
 
     // --- Map floating window (independent of main window visibility) ---
     if (g_MapWindowVisible) {
@@ -2492,7 +2494,6 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
 // ---------------------------------------------------------------------------
 static void OnFontBodyReceived(const char* /*id*/, void* font) {
     g_FontBody = (ImFont*)font;
-    if (g_FontBody) ImGui::GetIO().FontDefault = g_FontBody;
 }
 static void OnFontDisplayReceived(const char* /*id*/, void* font) {
     g_FontDisplay = (ImFont*)font;
