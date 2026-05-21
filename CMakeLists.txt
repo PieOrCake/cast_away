@@ -7,6 +7,8 @@ set(CMAKE_RC_COMPILER x86_64-w64-mingw32-windres)
 
 project(CastAway)
 
+enable_language(RC)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -45,6 +47,7 @@ set(SOURCES
     src/PriceCache.cpp
     src/AchievementTracker.cpp
     ${IMGUI_SOURCES}
+    ${CMAKE_SOURCE_DIR}/resources.rc
 )
 
 add_library(CastAway SHARED ${SOURCES})
@@ -56,8 +59,3 @@ set_target_properties(CastAway PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
-add_custom_command(TARGET CastAway POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/assets
-        $<TARGET_FILE_DIR:CastAway>/assets
-    COMMENT "Copying CastAway assets next to DLL")

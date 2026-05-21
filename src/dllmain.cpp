@@ -20,6 +20,7 @@
 #include "PriceCache.h"
 #include "AchievementTracker.h"
 #include "FishTank.h"
+#include "resources.h"
 
 #define V_MAJOR    0
 #define V_MINOR    1
@@ -2481,6 +2482,17 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef() {
 }
 
 // ---------------------------------------------------------------------------
+// Font callbacks (fired asynchronously by Nexus after atlas rebuild)
+// ---------------------------------------------------------------------------
+static void OnFontBodyReceived(const char* /*id*/, void* font) {
+    g_FontBody = (ImFont*)font;
+    if (g_FontBody) ImGui::GetIO().FontDefault = g_FontBody;
+}
+static void OnFontDisplayReceived(const char* /*id*/, void* font) {
+    g_FontDisplay = (ImFont*)font;
+}
+
+// ---------------------------------------------------------------------------
 // AddonLoad
 // ---------------------------------------------------------------------------
 void AddonLoad(AddonAPI_t* aApi) {
@@ -2499,22 +2511,14 @@ void AddonLoad(AddonAPI_t* aApi) {
     std::string dataDir = std::string(APIDefs->Paths_GetAddonDirectory("CastAway"));
     std::filesystem::create_directories(dataDir);
 
-    {
-        ImGuiIO& io = ImGui::GetIO();
-        ImFontConfig cfg;
-        cfg.OversampleH = 2;
-        cfg.OversampleV = 2;
-
-        std::string bodyPath    = dataDir + "\\assets\\fonts\\Inter-Regular.ttf";
-        std::string displayPath = dataDir + "\\assets\\fonts\\IMFellEnglish-Regular.ttf";
-
-        g_FontBody    = io.Fonts->AddFontFromFileTTF(bodyPath.c_str(),    15.f, &cfg);
-        g_FontDisplay = io.Fonts->AddFontFromFileTTF(displayPath.c_str(), 22.f, &cfg);
-
-        if (g_FontBody)
-            io.FontDefault = g_FontBody;
-
-        io.Fonts->Build();
+    HMODULE hSelf = GetModuleHandleW(L"CastAway.dll");
+    if (APIDefs->Fonts_AddFromResource && hSelf) {
+        APIDefs->Fonts_AddFromResource("CASTAWAY_FONT_BODY",    15.f,
+                                       IDR_FONT_BODY,    hSelf,
+                                       OnFontBodyReceived,    nullptr);
+        APIDefs->Fonts_AddFromResource("CASTAWAY_FONT_DISPLAY", 22.f,
+                                       IDR_FONT_DISPLAY, hSelf,
+                                       OnFontDisplayReceived, nullptr);
     }
 
     g_MapPanel.Init(APIDefs, dataDir);

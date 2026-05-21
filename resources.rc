@@ -1,0 +1,4 @@
+#include "src/resources.h"
+
+IDR_FONT_BODY     RCDATA "assets/fonts/Inter-Regular.ttf"
+IDR_FONT_DISPLAY  RCDATA "assets/fonts/IMFellEnglish-Regular.ttf"
