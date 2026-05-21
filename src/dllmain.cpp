@@ -444,6 +444,12 @@ static int  g_SelectedFish    = -1;
 static int  g_LastDetailFish  =  0;  // persists last viewed fish; never goes back to -1
 static ImFont* g_FontBody    = nullptr;
 static ImFont* g_FontDisplay = nullptr;
+static HMODULE g_hSelf       = nullptr;
+
+extern "C" BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) g_hSelf = hModule;
+    return TRUE;
+}
 
 static char g_SearchBuf[128]  = {};
 static int  g_FilterBait      = 0;
@@ -2511,13 +2517,12 @@ void AddonLoad(AddonAPI_t* aApi) {
     std::string dataDir = std::string(APIDefs->Paths_GetAddonDirectory("CastAway"));
     std::filesystem::create_directories(dataDir);
 
-    HMODULE hSelf = GetModuleHandleW(L"CastAway.dll");
-    if (APIDefs->Fonts_AddFromResource && hSelf) {
+    if (APIDefs->Fonts_AddFromResource && g_hSelf) {
         APIDefs->Fonts_AddFromResource("CASTAWAY_FONT_BODY",    15.f,
-                                       IDR_FONT_BODY,    hSelf,
+                                       IDR_FONT_BODY,    g_hSelf,
                                        OnFontBodyReceived,    nullptr);
         APIDefs->Fonts_AddFromResource("CASTAWAY_FONT_DISPLAY", 22.f,
-                                       IDR_FONT_DISPLAY, hSelf,
+                                       IDR_FONT_DISPLAY, g_hSelf,
                                        OnFontDisplayReceived, nullptr);
     }
 
