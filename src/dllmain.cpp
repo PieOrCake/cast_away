@@ -2095,7 +2095,8 @@ void AddonRender() {
                                 [&](ImDrawList* d, ImVec2 ip, float s, ImU32 c){ DrawChipWaterIcon(d,ip,s,f.water,c); });
 
                             bool fav = IsFavourite(f.name);
-                            DrawHeart(dl, {hx,hy}, 11.f,
+                            float heartScale = heartHit ? 1.25f : 1.f;
+                            DrawHeart(dl, {hx,hy}, 11.f * heartScale,
                                       fav ? IM_COL32(210,50,50,255) : IM_COL32(110,110,110,200), true);
                             bool caught = g_AchTracker.hoarded && g_AchTracker.IsCaught(idx);
                             if (caught) {
@@ -2228,7 +2229,8 @@ void AddonRender() {
 
                     // Heart (solid — red if fav, grey if not)
                     bool fav = IsFavourite(f.name);
-                    DrawHeart(dl, {hx, hy}, 11.f,
+                    float heartScale = heartHit ? 1.25f : 1.f;
+                    DrawHeart(dl, {hx, hy}, 11.f * heartScale,
                              fav ? IM_COL32(210, 50, 50, 255)
                                  : IM_COL32(110, 110, 110, 200), true);
 
