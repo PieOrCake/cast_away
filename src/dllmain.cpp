@@ -2274,6 +2274,21 @@ void AddonRender() {
                     DrawFishtankBg(dl, fTankMn, fTankMx);
                     DrawFishtankCreatures(dl, favCreMn, favCreMx);
                 }
+
+                if (g_Favourites.empty()) {
+                    ImVec2 a = ImGui::GetCursorScreenPos();
+                    float w = ImGui::GetContentRegionAvail().x;
+                    float h = 220.f;
+                    ImDrawList* fdl = ImGui::GetWindowDrawList();
+                    ImVec2 c = {a.x + w*0.5f, a.y + h*0.45f};
+                    fdl->AddCircle(c, 32.f, IM_COL32(110,110,120,200), 0, 2.f);
+                    DrawHeart(fdl, c, 22.f, IM_COL32(80, 80, 90, 200), true);
+                    const char* msg = "Tap the heart on any fish to track it here.";
+                    ImVec2 tsz = ImGui::CalcTextSize(msg);
+                    fdl->AddText({c.x - tsz.x*0.5f, c.y + 44.f},
+                                 IM_COL32(170,170,180,230), msg);
+                    ImGui::Dummy({w, h});
+                } else {
                 const float fLineH = ImGui::GetTextLineHeight();
                 const float fGap   = cardGap;
                 const float fCardW = floorf((ImGui::GetContentRegionAvail().x - fGap) / 2.f);
@@ -2365,6 +2380,7 @@ void AddonRender() {
 
                     fcol = 1 - fcol;
                 }
+                } // end else (favourites not empty)
             }
             ImGui::EndChild();
 
