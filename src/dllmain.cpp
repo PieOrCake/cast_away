@@ -1983,10 +1983,7 @@ void AddonRender() {
                         if (gst) {
                             float gfrac = gst->totalFish > 0
                                           ? (float)gst->caughtCount / gst->totalFish : 0.f;
-                            ImU32 gbarCol = gfrac > 0.f
-                                            ? IM_COL32(40,150,65,220) : IM_COL32(55,55,60,200);
                             ImGui::SameLine(ImGui::GetContentRegionAvail().x - 160.f);
-                            ImGui::SetNextItemWidth(150.f);
                             {
                                 float barW = 150.f;
                                 float barH = ImGui::GetTextLineHeight();
