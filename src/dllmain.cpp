@@ -656,8 +656,8 @@ static void ToggleFavourite(const char* name) {
 // Day/Night timeline bar
 // ---------------------------------------------------------------------------
 static void RenderDayNightBar(float windowWidth) {
-    static const float BAR_H   = 38.f;
-    static const float TICK_H  = 18.f;
+    static const float BAR_H   = 26.f;
+    static const float TICK_H  = 12.f;
     static const float TOTAL_H = BAR_H + TICK_H;
 
     ImDrawList* dl     = ImGui::GetWindowDrawList();
@@ -721,24 +721,20 @@ static void RenderDayNightBar(float windowWidth) {
     dl->AddLine({centerX + 1.f, origin.y}, {centerX + 1.f, origin.y + BAR_H},
                 IM_COL32(0, 0, 0, 140), 1.f);
 
-    // Left label: "HH:MM  PhaseName"
-    char timeLabel[64];
-    {
-        float th = GetTyrianHour();      // 0..24 Tyrian clock
-        uint32_t hh = (uint32_t)th;
-        uint32_t mm = (uint32_t)((th - (float)hh) * 60.0f);
-        snprintf(timeLabel, sizeof(timeLabel), "%02u:%02u  %s", hh, mm, TimeOfDayName(phase));
-    }
-    dl->AddText({origin.x + 4.f, origin.y + 4.f},
-                IM_COL32(255, 255, 255, 230), timeLabel);
-
-    // Right label: "→ NextPhase in Xm XXs"
-    char untilLabel[48];
-    snprintf(untilLabel, sizeof(untilLabel), "%s in %um %02us",
-             TimeOfDayName(GetNextPhase()), secLeft / 60, secLeft % 60);
-    ImVec2 tsz = ImGui::CalcTextSize(untilLabel);
-    dl->AddText({origin.x + windowWidth - tsz.x - 4.f, origin.y + 4.f},
-                IM_COL32(255, 255, 255, 200), untilLabel);
+    // Centred overlay: "PhaseName — next in Xm XXs"
+    char timeText[64];
+    const char* phaseName =
+        (phase == TimeOfDay::Day)   ? "Day"   :
+        (phase == TimeOfDay::Night) ? "Night" :
+        (phase == TimeOfDay::Dawn)  ? "Dawn"  : "Dusk";
+    snprintf(timeText, sizeof(timeText), "%s — next in %um %02us",
+             phaseName, secLeft/60, secLeft%60);
+    ImVec2 tsz = ImGui::CalcTextSize(timeText);
+    ImVec2 tp  = {origin.x + (windowWidth - tsz.x)*0.5f,
+                  origin.y + (BAR_H - tsz.y)*0.5f};
+    dl->AddRectFilled({tp.x-6, tp.y-1}, {tp.x+tsz.x+6, tp.y+tsz.y+1},
+                      IM_COL32(0,0,0,140), 3.f);
+    dl->AddText(tp, IM_COL32(255,255,255,235), timeText);
 
     // Tick strip background
     dl->AddRectFilled(
