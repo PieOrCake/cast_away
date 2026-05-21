@@ -728,13 +728,13 @@ static void RenderDayNightBar(float windowWidth) {
     dl->AddLine({centerX + 1.f, origin.y}, {centerX + 1.f, origin.y + BAR_H},
                 IM_COL32(0, 0, 0, 140), 1.f);
 
-    // Centred overlay: "PhaseName — next in Xm XXs"
+    // Centred overlay: "PhaseName - next in Xm XXs"
     char timeText[64];
     const char* phaseName =
         (phase == TimeOfDay::Day)   ? "Day"   :
         (phase == TimeOfDay::Night) ? "Night" :
         (phase == TimeOfDay::Dawn)  ? "Dawn"  : "Dusk";
-    snprintf(timeText, sizeof(timeText), "%s — next in %um %02us",
+    snprintf(timeText, sizeof(timeText), "%s - next in %um %02us",
              phaseName, secLeft/60, secLeft%60);
     ImVec2 tsz = ImGui::CalcTextSize(timeText);
     ImVec2 tp  = {origin.x + (windowWidth - tsz.x)*0.5f,
@@ -2517,13 +2517,31 @@ void AddonLoad(AddonAPI_t* aApi) {
     std::string dataDir = std::string(APIDefs->Paths_GetAddonDirectory("CastAway"));
     std::filesystem::create_directories(dataDir);
 
-    if (APIDefs->Fonts_AddFromResource && g_hSelf) {
-        APIDefs->Fonts_AddFromResource("CASTAWAY_FONT_BODY",    15.f,
-                                       IDR_FONT_BODY,    g_hSelf,
-                                       OnFontBodyReceived,    nullptr);
-        APIDefs->Fonts_AddFromResource("CASTAWAY_FONT_DISPLAY", 22.f,
-                                       IDR_FONT_DISPLAY, g_hSelf,
-                                       OnFontDisplayReceived, nullptr);
+    if (APIDefs->Fonts_AddFromFile && g_hSelf) {
+        auto extractRes = [&](int id, const std::string& outPath) -> bool {
+            if (std::filesystem::exists(outPath)) return true;
+            HRSRC h = FindResourceA(g_hSelf, MAKEINTRESOURCEA(id), (LPCSTR)RT_RCDATA);
+            if (!h) return false;
+            HGLOBAL g = LoadResource(g_hSelf, h);
+            if (!g) return false;
+            void* p = LockResource(g);
+            DWORD sz = SizeofResource(g_hSelf, h);
+            if (!p || sz == 0) return false;
+            std::ofstream f(outPath, std::ios::binary);
+            if (!f) return false;
+            f.write((const char*)p, sz);
+            return f.good();
+        };
+        std::string bodyPath    = dataDir + "/Inter-Regular.ttf";
+        std::string displayPath = dataDir + "/IMFellEnglish-Regular.ttf";
+        if (extractRes(IDR_FONT_BODY, bodyPath)) {
+            APIDefs->Fonts_AddFromFile("CASTAWAY_FONT_BODY", 15.f,
+                                       bodyPath.c_str(), OnFontBodyReceived, nullptr);
+        }
+        if (extractRes(IDR_FONT_DISPLAY, displayPath)) {
+            APIDefs->Fonts_AddFromFile("CASTAWAY_FONT_DISPLAY", 22.f,
+                                       displayPath.c_str(), OnFontDisplayReceived, nullptr);
+        }
     }
 
     g_MapPanel.Init(APIDefs, dataDir);
