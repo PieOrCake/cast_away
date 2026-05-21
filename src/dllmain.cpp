@@ -441,6 +441,9 @@ static MapPanel g_MapPanel;
 
 static int  g_SelectedFish    = -1;
 static int  g_LastDetailFish  =  0;  // persists last viewed fish; never goes back to -1
+static ImFont* g_FontBody    = nullptr;
+static ImFont* g_FontDisplay = nullptr;
+
 static char g_SearchBuf[128]  = {};
 static int  g_FilterBait      = 0;
 static int  g_FilterTime      = 0;
@@ -1350,7 +1353,9 @@ static void RenderFishDetails(int fishIdx) {
 
     ImGui::BeginGroup();
     // Name coloured by rarity
+    if (g_FontDisplay) ImGui::PushFont(g_FontDisplay);
     ImGui::TextColored(RarityColor(GetFishRarity(f.itemId)), "%s", f.name);
+    if (g_FontDisplay) ImGui::PopFont();
     if (f.region && f.region[0])
         ImGui::TextDisabled("%s", f.region);
     ImGui::EndGroup();
@@ -2440,6 +2445,25 @@ void AddonLoad(AddonAPI_t* aApi) {
 
     std::string dataDir = std::string(APIDefs->Paths_GetAddonDirectory("CastAway"));
     std::filesystem::create_directories(dataDir);
+
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        ImFontConfig cfg;
+        cfg.OversampleH = 2;
+        cfg.OversampleV = 2;
+
+        std::string bodyPath    = dataDir + "\\assets\\fonts\\Inter-Regular.ttf";
+        std::string displayPath = dataDir + "\\assets\\fonts\\IMFellEnglish-Regular.ttf";
+
+        g_FontBody    = io.Fonts->AddFontFromFileTTF(bodyPath.c_str(),    15.f, &cfg);
+        g_FontDisplay = io.Fonts->AddFontFromFileTTF(displayPath.c_str(), 22.f, &cfg);
+
+        if (g_FontBody)
+            io.FontDefault = g_FontBody;
+
+        io.Fonts->Build();
+    }
+
     g_MapPanel.Init(APIDefs, dataDir);
 
     g_SortedFishIndices.resize((size_t)FISH_COUNT);

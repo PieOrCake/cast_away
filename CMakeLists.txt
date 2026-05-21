@@ -55,3 +55,9 @@ target_sources(CastAway PRIVATE ${CMAKE_SOURCE_DIR}/CastAway.def)
 set_target_properties(CastAway PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+add_custom_command(TARGET CastAway POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets
+        $<TARGET_FILE_DIR:CastAway>/assets
+    COMMENT "Copying CastAway assets next to DLL")
