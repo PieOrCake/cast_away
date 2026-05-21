@@ -1363,62 +1363,52 @@ static void RenderFishDetails(int fishIdx) {
         if (const BonusItem* b = GetBonusItem(f.itemId, bi))
             g_Prices.Request(b->itemId);
 
-    // Fish icon 48x48
+    ImVec4 rcol = RarityColor(GetFishRarity(f.itemId));
+    ImU32  rrgb = IM_COL32((int)(rcol.x*255),(int)(rcol.y*255),(int)(rcol.z*255),255);
+
     if (f.itemId != 0) {
         Texture_t* tex = CastAway::IconManager::GetIcon(f.itemId);
         if (tex && tex->Resource) {
-            ImGui::Image((ImTextureID)(uintptr_t)tex->Resource, {48.f, 48.f});
+            ImGui::Image((ImTextureID)(uintptr_t)tex->Resource, {72.f, 72.f});
         } else {
             CastAway::IconManager::RequestIcon(f.itemId, f.iconUrl ? f.iconUrl : "");
-            ImGui::Dummy({48.f, 48.f});
+            ImGui::Dummy({72.f, 72.f});
         }
         ImGui::SameLine();
     }
-
     ImGui::BeginGroup();
-    // Name coloured by rarity
     if (g_FontDisplay) ImGui::PushFont(g_FontDisplay);
-    ImGui::TextColored(RarityColor(GetFishRarity(f.itemId)), "%s", f.name);
+    ImGui::TextColored(rcol, "%s", f.name);
     if (g_FontDisplay) ImGui::PopFont();
-    if (f.region && f.region[0])
-        ImGui::TextDisabled("%s", f.region);
+    if (f.region && f.region[0]) ImGui::TextDisabled("%s", f.region);
+    ImVec2 sp = ImGui::GetCursorScreenPos();
+    ImGui::GetWindowDrawList()->AddRectFilled(
+        sp, {sp.x + 160.f, sp.y + 3.f}, rrgb, 1.f);
+    ImGui::Dummy({160.f, 5.f});
     ImGui::EndGroup();
-
     ImGui::Separator();
 
-    auto row = [](const char* label, const char* value) {
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", label);
-        ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(value ? value : "-");
+    auto attr = [](const char* label, const char* value) {
+        ImGui::TextDisabled("%-12s", label);
+        ImGui::SameLine(110.f);
+        ImGui::TextUnformatted(value && value[0] ? value : "—");
     };
-
-    if (ImGui::BeginTable("##FishInfo", 2,
-            ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg, {-1.f, 0.f})) {
-        ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 80.f);
-        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-
-        row("Map",        f.map);
-        row("Water",      WaterTypeName(f.water));
-        row("Hole",       f.holeType != HoleWater::Any
-                              ? HoleWaterName(f.holeType)
-                              : "-");
-        {
-            int rp = GetRecommendedPower(f.map, f.holeType);
-            if (rp > 0) {
-                char buf[16]; snprintf(buf, sizeof(buf), "%d", rp);
-                row("Rec. Power", buf);
-            }
+    attr("Map",        f.map);
+    attr("Water",      WaterTypeName(f.water));
+    attr("Hole",       f.holeType != HoleWater::Any ? HoleWaterName(f.holeType) : "—");
+    {
+        int rp = GetRecommendedPower(f.map, f.holeType);
+        if (rp > 0) {
+            char buf[16]; snprintf(buf, sizeof(buf), "%d", rp);
+            attr("Rec. Power", buf);
         }
-        row("Bait",       BAIT_NAMES[(int)f.bait]);
-        row("Time",       TimeOfDayName(f.time));
-        row("Collection", f.collection ? f.collection : "-");
-        if (g_AchTracker.hoarded) {
-            row("Caught", g_AchTracker.IsCaught(fishIdx) ? "Yes" : "No");
-        } else {
-            row("Caught", "?");
-        }
-        ImGui::EndTable();
     }
+    attr("Bait",       BAIT_NAMES[(int)f.bait]);
+    attr("Time",       TimeOfDayName(f.time));
+    attr("Collection", f.collection);
+    attr("Caught",     g_AchTracker.hoarded
+                         ? (g_AchTracker.IsCaught(fishIdx) ? "Yes" : "No")
+                         : "?");
 
     // Contents / fillet section
     if (f.filletItemId != 0) {
