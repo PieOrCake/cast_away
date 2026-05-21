@@ -1870,7 +1870,7 @@ void AddonRender() {
             }
             ImGui::SameLine();
             ImGui::Checkbox("Here", &g_FilterHere);
-            ImGui::SameLine();
+            ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
             ImGui::Checkbox("Hide caught", &g_HideCaught);
             ImGui::SameLine();
             if (ImGui::SmallButton("Clear")) {
@@ -1882,7 +1882,8 @@ void AddonRender() {
                 g_HideCaught      = false;
                 g_FilterMap.clear();
             }
-            ImGui::SameLine();
+
+            ImGui::SameLine(); ImGui::TextDisabled("|"); ImGui::SameLine();
             ImGui::Checkbox("Grouped", &g_GroupByCollection);
             ImGui::SameLine();
 
