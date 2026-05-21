@@ -586,13 +586,31 @@ static void LoadSettings() {
 static bool FishMatchesFilter(int fishIdx) {
     const Fish& f = FISH_TABLE[fishIdx];
 
-    // Name search (case-insensitive)
+    // Name + collection search: substring first, subsequence-fuzzy as fallback
     if (g_SearchBuf[0]) {
-        std::string haystack = f.name;
-        std::string needle   = g_SearchBuf;
-        std::transform(haystack.begin(), haystack.end(), haystack.begin(), ::tolower);
-        std::transform(needle.begin(),   needle.end(),   needle.begin(),   ::tolower);
-        if (haystack.find(needle) == std::string::npos) return false;
+        auto tolower_s = [](std::string s) {
+            std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+            return s;
+        };
+        std::string needle = tolower_s(g_SearchBuf);
+        std::string name   = tolower_s(f.name ? f.name : "");
+        std::string coll   = tolower_s(f.collection ? f.collection : "");
+
+        bool hit = (name.find(needle) != std::string::npos)
+                || (coll.find(needle) != std::string::npos);
+
+        if (!hit) {
+            auto subseq = [&](const std::string& hay) {
+                size_t j = 0;
+                for (char c : hay) {
+                    if (j < needle.size() && c == needle[j]) ++j;
+                    if (j == needle.size()) return true;
+                }
+                return false;
+            };
+            hit = subseq(name) || subseq(coll);
+        }
+        if (!hit) return false;
     }
 
     // Bait filter
@@ -1820,7 +1838,7 @@ void AddonRender() {
 
             // Filter bar
             ImGui::SetNextItemWidth(140.f);
-            ImGui::InputText("##Search", g_SearchBuf, sizeof(g_SearchBuf));
+            ImGui::InputTextWithHint("##Search", "Search fish or collection\xe2\x80\xa6", g_SearchBuf, sizeof(g_SearchBuf));
             ImGui::SameLine();
 
             ImGui::SetNextItemWidth(110.f);
