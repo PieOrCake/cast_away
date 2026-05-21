@@ -291,3 +291,57 @@ const char* GetFishRarity(uint32_t itemId) {
         if (RARITY_MAP[i].itemId == itemId) return RARITY_MAP[i].rarity;
     return "Basic";
 }
+
+// ---------------------------------------------------------------------------
+// Recommended Fishing Power per (region, holeType).
+// Sourced from individual fishing-hole-type wiki pages.
+// 0 indicates "no data" — caller should not display the row.
+// ---------------------------------------------------------------------------
+#include <cstring>
+
+struct PowerEntry {
+    const char* region;
+    HoleWater   hole;
+    int         power;
+};
+static const PowerEntry POWER_TABLE[] = {
+    // Core Tyria
+    { "Kryta",                 HoleWater::River,    350 },
+    { "Kryta",                 HoleWater::Lake,     400 },
+    { "Kryta",                 HoleWater::Coastal,  450 },
+    { "Ascalon",               HoleWater::Lake,     450 },
+    { "Ascalon",               HoleWater::Noxious,  500 },
+    { "Shiverpeak Mountains",  HoleWater::Lake,     400 },
+    { "Shiverpeak Mountains",  HoleWater::Boreal,   450 },
+    { "Maguuma Jungle",        HoleWater::Freshwater, 500 },
+    { "Maguuma Jungle",        HoleWater::Saltwater,  550 },
+    { "Ruins of Orr",          HoleWater::Shore,    650 },
+    { "Ruins of Orr",          HoleWater::Offshore, 700 },
+    // Path of Fire
+    { "Crystal Desert",        HoleWater::Desert,   550 },
+    { "Desert Isles",          HoleWater::Shore,    600 },
+    { "Desert Isles",          HoleWater::Offshore, 650 },
+    // Ring of Fire / Ember Bay
+    { "Ring of Fire",          HoleWater::Volcanic, 750 },
+    { "Ring of Fire",          HoleWater::Coastal,  700 },
+    // End of Dragons
+    { "Seitung Province",      HoleWater::Shore,    150 },
+    { "Seitung Province",      HoleWater::Offshore, 200 },
+    { "New Kaineng City",      HoleWater::Channel,  250 },
+    { "New Kaineng City",      HoleWater::Coastal,  200 },
+    { "The Echovald Wilds",    HoleWater::Lake,     250 },
+    { "The Echovald Wilds",    HoleWater::Grotto,   300 },
+    { "Dragon's End",          HoleWater::Quarry,   300 },
+    { "Dragon's End",          HoleWater::Cavern,   350 },
+};
+static const int POWER_TABLE_COUNT = sizeof(POWER_TABLE) / sizeof(POWER_TABLE[0]);
+
+int GetRecommendedPower(const char* fishMap, HoleWater holeType) {
+    if (!fishMap || holeType == HoleWater::Any) return 0;
+    for (int i = 0; i < POWER_TABLE_COUNT; ++i) {
+        if (POWER_TABLE[i].hole == holeType &&
+            strcmp(POWER_TABLE[i].region, fishMap) == 0)
+            return POWER_TABLE[i].power;
+    }
+    return 0;
+}

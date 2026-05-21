@@ -13,16 +13,19 @@ If an LLM creating software upsets you, then perhaps this repo isn't for you. Mo
 ## Screenshots
 
 ![Cast Away main window](screenshots/main.png)
+![Cast Away map window](screenshots/map.png)
 
 ## Features
 
-- **307 fish** — Core through Visions of Eternity, each with bait, time-of-day, fishing hole type, fillet, and TP price.
-- **Interactive map** — 3,660+ fishing holes across 54 maps, GW2 waypoints, pan and zoom. When a fish is selected the map navigates to its region and filters holes to the matching type (Shore, Offshore, Lake, etc.).
-- **Grouped database view** — browse all fish flat or switch to collection groupings, each with a caught/total progress bar. Filters (bait, time, "Hide caught") apply in both views.
-- **Achievement tracking** — per-collection progress with green progress bars, driven by optional Hoard & Seek / Events:Alerts integration.
-- **Day/night tracker** — scrolling Tyrian-time bar with phase countdown. Click the HUD overlay to open the main window.
-- **Favourite fish alerts** — notifies you before a favourite's time window opens, with a direct Open Map button.
-- **Fish details** — bait, time, hole type, water type, collection, catch status, fillet price, and all bonus drops (guaranteed and chance).
+- **307 fish** — Core through Visions of Eternity.
+- **Interactive map** — 3,660+ fishing holes across 54 maps with GW2 waypoints and player location marker
+- **Smart navigation** — selecting a fish jumps to the map in its region with the most matching holes for that fish's hole type.
+- **"Here" + "Now" filters** — instantly show fish catchable in your current zone, optionally narrowed to the current day/night phase.
+- **Grouped database view** — browse all fish flat or switch to collection groupings, each with a caught/total progress bar.
+- **Achievement tracking** — per-collection progress driven by optional Hoard & Seek / Events:Alerts integration.
+- **Day/night tracker** — scrolling Tyrian-time bar with phase countdown.
+- **Favourite fish alerts** — notifies you before a favourite's time window opens.
+- **Fish details** — bait, time, hole type, recommended power, water type, collection, catch status, fillet price, and bonus drops.
 
 ## Installation
 

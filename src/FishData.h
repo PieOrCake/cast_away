@@ -95,6 +95,10 @@ extern const int               COLLECTION_COUNT;
 
 const char* GetFishRarity(uint32_t itemId);
 
+// Returns the recommended fishing power for a fish given its region (Fish.map)
+// and holeType. 0 = unknown / not displayed.
+int GetRecommendedPower(const char* fishMap, HoleWater holeType);
+
 struct BaitInfo {
     uint32_t    itemId;
     const char* iconUrl;

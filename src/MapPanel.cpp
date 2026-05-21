@@ -11,6 +11,7 @@
 #include <vector>
 #include <unordered_set>
 #include <algorithm>
+#include <chrono>
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
@@ -19,14 +20,74 @@ using json = nlohmann::json;
 // Static helpers
 // ---------------------------------------------------------------------------
 
+// Core-Tyria region → mapIds. Only regions that span multiple maps need an
+// entry; everything else uses the single mapId from HOLE_TABLE directly.
+namespace {
+    struct RegionMaps { const char* name; const uint32_t* ids; int count; };
+    static const uint32_t KRYTA_MAPS[]    = { 15, 17, 19, 20, 21, 50 }; // Queensdale, Harathi, Kessex, Gendarran, Bloodtide, Lion's Arch
+    static const uint32_t ASCALON_MAPS[]  = { 25, 27, 28, 29, 30, 31, 32 };
+    static const uint32_t SHIVERPEAK_MAPS[]= { 23, 24, 26, 27, 28, 30, 31, 32 }; // Wayfarer/Snowden/etc — overlap is fine, best-match wins
+    static const uint32_t MAGUUMA_MAPS[]  = { 34, 35, 39, 53, 54, 873 };
+    static const uint32_t ORR_MAPS[]      = { 50, 51, 62, 65 };
+    static const RegionMaps REGION_MAPS[] = {
+        { "Kryta",                KRYTA_MAPS,     6 },
+        { "Ascalon",              ASCALON_MAPS,   7 },
+        { "Shiverpeak Mountains", SHIVERPEAK_MAPS,8 },
+        { "Maguuma Jungle",       MAGUUMA_MAPS,   6 },
+        { "Ruins of Orr",         ORR_MAPS,       4 },
+    };
+
+    // Returns true if mapId belongs to the named region (multi-map regions only).
+    bool IsMapInRegionMulti(uint32_t mapId, const char* region) {
+        if (!region) return false;
+        for (const auto& r : REGION_MAPS) {
+            if (strcmp(r.name, region) != 0) continue;
+            for (int i = 0; i < r.count; ++i)
+                if (r.ids[i] == mapId) return true;
+            return false;
+        }
+        return false;
+    }
+
+    // Returns the mapId within `region` that has the most holes matching `want`,
+    // or 0 if the region is not multi-map. `fallback` is returned when the region
+    // is known but no map has any matching hole.
+    uint32_t BestMapForRegion(const char* region, HoleWater want, uint32_t fallback) {
+        if (!region) return 0;
+        const RegionMaps* rm = nullptr;
+        for (const auto& r : REGION_MAPS) {
+            if (strcmp(r.name, region) == 0) { rm = &r; break; }
+        }
+        if (!rm) return 0;
+        uint32_t bestId = fallback;
+        int      bestCount = 0;
+        for (int i = 0; i < rm->count; ++i) {
+            uint32_t mid = rm->ids[i];
+            int cnt = 0;
+            for (int j = 0; j < HOLE_LOCATION_COUNT; ++j) {
+                const HoleLocation& h = HOLE_LOCATION_TABLE[j];
+                if (h.mapId != mid) continue;
+                if (want == HoleWater::Any || h.water == want) ++cnt;
+            }
+            if (cnt > bestCount) { bestCount = cnt; bestId = mid; }
+        }
+        return bestId;
+    }
+}
+
 static void CopyToClipboard(const std::string& text) {
     if (!OpenClipboard(nullptr)) return;
     EmptyClipboard();
     HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, text.size() + 1);
     if (h) {
-        memcpy(GlobalLock(h), text.c_str(), text.size() + 1);
-        GlobalUnlock(h);
-        SetClipboardData(CF_TEXT, h);
+        void* dst = GlobalLock(h);
+        if (dst) {
+            memcpy(dst, text.c_str(), text.size() + 1);
+            GlobalUnlock(h);
+            SetClipboardData(CF_TEXT, h);
+        } else {
+            GlobalFree(h);
+        }
     }
     CloseClipboard();
 }
@@ -276,22 +337,107 @@ void MapPanel::RenderHoles(ImDrawList* dl, ImVec2 wp, ImVec2 ws,
 // Player dot
 // ---------------------------------------------------------------------------
 
-void MapPanel::RenderPlayerDot(ImDrawList* dl, ImVec2 wp, ImVec2 ws,
-                                int mumbleMapId, float gx, float gz) {
-    if (gx == 0.f && gz == 0.f) return;
+void MapPanel::SampleTrail(int mumbleMapId, float gx, float gz) {
     if (mumbleMapId <= 0 || mumbleMapId >= 100000) return;
-    // Only draw the player dot when the displayed map matches the player's actual map.
-    if ((uint32_t)mumbleMapId != m_lastMapId) return;
+    if (gx == 0.f && gz == 0.f) return;
+
+    // Reset trail when the player changes map.
+    if ((uint32_t)mumbleMapId != m_trailMapId) {
+        m_trail.clear();
+        m_trailMapId = (uint32_t)mumbleMapId;
+    }
 
     float cx, cy;
     if (!MumbleToCont((uint32_t)mumbleMapId, gx, gz, cx, cy)) return;
 
-    ImVec2 pos = ContToScreen(wp, ws, cx, cy);
-    if (pos.x < wp.x || pos.x > wp.x + ws.x ||
-        pos.y < wp.y || pos.y > wp.y + ws.y) return;
+    using clk = std::chrono::steady_clock;
+    static auto t0 = clk::now();
+    double now = std::chrono::duration<double>(clk::now() - t0).count();
 
-    dl->AddCircleFilled(pos, 5.f, IM_COL32(255, 210, 50, 255));
-    dl->AddCircle(pos, 5.f, IM_COL32(0, 0, 0, 200), 0, 1.5f);
+    const double minInterval = 0.15; // 150 ms throttle
+    const float  minDist     = 30.f;  // cont units (~0.8m) — dense trail
+
+    if (!m_trail.empty()) {
+        if ((now - m_lastTrailSampleS) < minInterval) return;
+        float dx = cx - m_trail.back().cx;
+        float dy = cy - m_trail.back().cy;
+        if ((dx*dx + dy*dy) < (minDist * minDist)) return;
+    }
+
+    m_trail.push_back({cx, cy});
+    m_lastTrailSampleS = now;
+
+    const size_t kMax = 80;
+    if (m_trail.size() > kMax)
+        m_trail.erase(m_trail.begin(), m_trail.begin() + (m_trail.size() - kMax));
+}
+
+void MapPanel::RenderTrail(ImDrawList* dl, ImVec2 wp, ImVec2 ws) {
+    if (m_trail.size() < 2) return;
+    if (m_trailMapId != m_lastMapId) return;
+
+    const size_t n = m_trail.size();
+
+    // Precompute screen positions.
+    std::vector<ImVec2> pts; pts.reserve(n);
+    for (size_t i = 0; i < n; ++i)
+        pts.push_back(ContToScreen(wp, ws, m_trail[i].cx, m_trail[i].cy));
+
+    auto inView = [&](ImVec2 p){
+        return p.x >= wp.x && p.x <= wp.x + ws.x && p.y >= wp.y && p.y <= wp.y + ws.y;
+    };
+
+    // Faint connecting line between consecutive samples.
+    for (size_t i = 0; i + 1 < n; ++i) {
+        if (!inView(pts[i]) && !inView(pts[i+1])) continue;
+        float t = (float)(i + 1) / (float)n;
+        int alpha = (int)(50.f + t * 110.f); // 50..160
+        ImU32 col = IM_COL32(255, 255, 255, alpha);
+        dl->AddLine(pts[i], pts[i+1], col, 1.5f);
+    }
+
+    // Dots on top of the line (skip the newest — the player dot covers it).
+    for (size_t i = 0; i + 1 < n; ++i) {
+        if (!inView(pts[i])) continue;
+        float t = (float)(i + 1) / (float)n;
+        int alpha = (int)(150.f + t * 105.f); // 150..255
+        ImU32 fill    = IM_COL32(255, 255, 255, alpha);
+        ImU32 outline = IM_COL32(0, 0, 0, alpha);
+        dl->AddCircleFilled(pts[i], 2.f, fill);
+        dl->AddCircle      (pts[i], 2.f, outline, 0, 1.0f);
+    }
+}
+
+void MapPanel::RenderPlayerDot(ImDrawList* dl, ImVec2 wp, ImVec2 ws,
+                                int mumbleMapId, float gx, float gz) {
+    if (gx == 0.f && gz == 0.f) return;
+    if (mumbleMapId <= 0 || mumbleMapId >= 100000) return;
+
+    // Try the player's actual map first; fall back to the displayed map so
+    // the dot still shows under instanced map ids or while bounds load.
+    float cx, cy;
+    bool ok = MumbleToCont((uint32_t)mumbleMapId, gx, gz, cx, cy);
+    if (!ok && m_lastMapId != 0 && (uint32_t)mumbleMapId != m_lastMapId)
+        ok = MumbleToCont(m_lastMapId, gx, gz, cx, cy);
+    if (!ok) return;
+
+    ImVec2 pos = ContToScreen(wp, ws, cx, cy);
+
+    // Clamp the dot to the viewport edge if the player is off-screen so the
+    // user can still see which direction they are relative to the view.
+    bool clamped = false;
+    if (pos.x < wp.x + 8.f)             { pos.x = wp.x + 8.f;             clamped = true; }
+    if (pos.x > wp.x + ws.x - 8.f)      { pos.x = wp.x + ws.x - 8.f;      clamped = true; }
+    if (pos.y < wp.y + 8.f)             { pos.y = wp.y + 8.f;             clamped = true; }
+    if (pos.y > wp.y + ws.y - 8.f)      { pos.y = wp.y + ws.y - 8.f;      clamped = true; }
+
+    // Larger, high-contrast marker so it stands out against tiles and holes.
+    ImU32 fill    = clamped ? IM_COL32(255, 120,  60, 255)   // orange when off-screen
+                            : IM_COL32(255, 230,  70, 255);  // bright yellow
+    ImU32 outline = IM_COL32(0, 0, 0, 230);
+    ImU32 ring    = IM_COL32(255, 255, 255, 180);
+    dl->AddCircleFilled(pos, 4.f, fill);
+    dl->AddCircle      (pos, 4.f, outline, 0, 1.0f);
 }
 
 // ---------------------------------------------------------------------------
@@ -320,11 +466,14 @@ void MapPanel::Render(int selectedFishIdx, int mumbleMapId, float game_x, float 
     // Background
     dl->AddRectFilled(wp, ImVec2(wp.x + ws.x, wp.y + ws.y), IM_COL32(20, 25, 35, 255));
 
-    // Map ID change — try to centre on player.
-    // Reject garbage values (real GW2 map IDs are well under 100k).
-    if (mumbleMapId > 0 && mumbleMapId < 100000 && (uint32_t)mumbleMapId != m_lastMapId) {
-        m_lastMapId   = (uint32_t)mumbleMapId;
-        m_prefetched  = false;
+    // Player changed map — follow them (but only when the player's own map id
+    // changes, not just when the displayed map differs from the player's map,
+    // otherwise this would override a fish-selection that navigated elsewhere).
+    if (mumbleMapId > 0 && mumbleMapId < 100000 &&
+        (uint32_t)mumbleMapId != m_lastMumbleMapId) {
+        m_lastMumbleMapId = (uint32_t)mumbleMapId;
+        m_lastMapId       = (uint32_t)mumbleMapId;
+        m_prefetched      = false;
         float cx, cy;
         if (game_x != 0.f && MumbleToCont(m_lastMapId, game_x, game_z, cx, cy)) {
             m_orig_x = cx;
@@ -344,34 +493,62 @@ void MapPanel::Render(int selectedFishIdx, int mumbleMapId, float game_x, float 
                 const FishingHole& hole = HOLE_TABLE[i];
                 if (!fish.map || !hole.map || strcmp(fish.map, hole.map) != 0) continue;
 
-                m_lastMapId      = hole.mapId;
+                // For multi-map regions (e.g. "Kryta"), pick the map that has
+                // the most holes matching this fish's holeType, falling back
+                // to HOLE_TABLE's nominal map.
+                uint32_t chosenMapId = hole.mapId;
+                uint32_t better = BestMapForRegion(fish.map, fish.holeType, hole.mapId);
+                if (better != 0) chosenMapId = better;
+
+                m_lastMapId      = chosenMapId;
                 m_prefetched     = false;
                 m_lastPrefetchZ  = -1;
                 {
                     std::lock_guard<std::mutex> lk(m_boundsMu);
-                    auto it = m_bounds.find(hole.mapId);
+                    auto it = m_bounds.find(chosenMapId);
                     if (it != m_bounds.end() && it->second.valid) {
                         const MapBoundsData& b = it->second;
-                        if (hole.game_x != 0.f || hole.game_z != 0.f) {
-                            float ix = hole.game_x * 39.3701f;
-                            float iy = hole.game_z * 39.3701f;
-                            m_orig_x = (ix - b.map_min_x) / (b.map_max_x - b.map_min_x)
+                        // If the player is already on this map, centre on them so the
+                        // player dot is immediately visible. Otherwise centre on a hole.
+                        // (Inline conversion — we already hold m_boundsMu.)
+                        if (mumbleMapId > 0 && (uint32_t)mumbleMapId == chosenMapId &&
+                            (game_x != 0.f || game_z != 0.f)) {
+                            float pix = game_x * 39.3701f;
+                            float piy = game_z * 39.3701f;
+                            m_orig_x = (pix - b.map_min_x) / (b.map_max_x - b.map_min_x)
                                            * (b.cont_max_x - b.cont_min_x) + b.cont_min_x;
-                            m_orig_y = (b.map_max_y - iy) / (b.map_max_y - b.map_min_y)
+                            m_orig_y = (b.map_max_y - piy) / (b.map_max_y - b.map_min_y)
                                            * (b.cont_max_y - b.cont_min_y) + b.cont_min_y;
-                            char msg[192];
-                            snprintf(msg, sizeof(msg),
-                                "[Map] Centre on hole '%s' map %u: game(%.1f,%.1f) -> cont(%.0f,%.0f)",
-                                hole.name, hole.mapId, hole.game_x, hole.game_z, m_orig_x, m_orig_y);
-                            if (m_api) m_api->Log(LOGL_DEBUG, "CastAway", msg);
+                            if (m_api) m_api->Log(LOGL_DEBUG, "CastAway",
+                                "[Map] Centre on player (already on fish map)");
                         } else {
-                            m_orig_x = (b.cont_min_x + b.cont_max_x) * 0.5f;
-                            m_orig_y = (b.cont_min_y + b.cont_max_y) * 0.5f;
-                            char msg[192];
-                            snprintf(msg, sizeof(msg),
-                                "[Map] Centre on map region %u (no hole coords): cont(%.0f,%.0f)",
-                                hole.mapId, m_orig_x, m_orig_y);
-                            if (m_api) m_api->Log(LOGL_DEBUG, "CastAway", msg);
+                            // Pick an actual matching hole on chosenMapId (which may
+                            // differ from hole.mapId when the region was redirected).
+                            float pickX = 0.f, pickZ = 0.f;
+                            bool  havePick = false;
+                            for (int j = 0; j < HOLE_LOCATION_COUNT; ++j) {
+                                const HoleLocation& hl = HOLE_LOCATION_TABLE[j];
+                                if (hl.mapId != chosenMapId) continue;
+                                if (fish.holeType != HoleWater::Any && hl.water != fish.holeType) continue;
+                                pickX = hl.game_x; pickZ = hl.game_z; havePick = true;
+                                break;
+                            }
+                            if (havePick) {
+                                float ix = pickX * 39.3701f;
+                                float iy = pickZ * 39.3701f;
+                                m_orig_x = (ix - b.map_min_x) / (b.map_max_x - b.map_min_x)
+                                               * (b.cont_max_x - b.cont_min_x) + b.cont_min_x;
+                                m_orig_y = (b.map_max_y - iy) / (b.map_max_y - b.map_min_y)
+                                               * (b.cont_max_y - b.cont_min_y) + b.cont_min_y;
+                            } else {
+                                m_orig_x = (b.cont_min_x + b.cont_max_x) * 0.5f;
+                                m_orig_y = (b.cont_min_y + b.cont_max_y) * 0.5f;
+                                char msg[192];
+                                snprintf(msg, sizeof(msg),
+                                    "[Map] Centre on map %u (no matching holes): cont(%.0f,%.0f)",
+                                    chosenMapId, m_orig_x, m_orig_y);
+                                if (m_api) m_api->Log(LOGL_DEBUG, "CastAway", msg);
+                            }
                         }
                     } else {
                         char msg[128];
@@ -388,6 +565,24 @@ void MapPanel::Render(int selectedFishIdx, int mumbleMapId, float game_x, float 
     RenderTiles(dl, wp, ws);
     RenderHoles(dl, wp, ws, selectedFishIdx, game_x, game_z);
     RenderWaypoints(dl, wp, ws);
+
+    // If the player is on the currently displayed map and the dot would be off-screen,
+    // re-centre the view on them so the dot is always visible.
+    if (mumbleMapId > 0 && mumbleMapId < 100000 &&
+        (uint32_t)mumbleMapId == m_lastMapId &&
+        (game_x != 0.f || game_z != 0.f)) {
+        float pcx, pcy;
+        if (MumbleToCont((uint32_t)mumbleMapId, game_x, game_z, pcx, pcy)) {
+            ImVec2 pp = ContToScreen(wp, ws, pcx, pcy);
+            if (pp.x < wp.x || pp.x > wp.x + ws.x ||
+                pp.y < wp.y || pp.y > wp.y + ws.y) {
+                m_orig_x = pcx;
+                m_orig_y = pcy;
+            }
+        }
+    }
+
+    RenderTrail(dl, wp, ws);
     RenderPlayerDot(dl, wp, ws, mumbleMapId, game_x, game_z);
     RenderLabels(dl, wp, ws);
 
@@ -974,4 +1169,14 @@ void MapPanel::SaveWaypointsCache() {
         std::ofstream f(path);
         f << j.dump(2);
     } catch (...) {}
+}
+
+bool MapPanel::IsMapInRegion(uint32_t mapId, const char* region) {
+    if (!region || mapId == 0) return false;
+    if (IsMapInRegionMulti(mapId, region)) return true;
+    for (int i = 0; i < HOLE_COUNT; ++i) {
+        const FishingHole& h = HOLE_TABLE[i];
+        if (h.map && strcmp(h.map, region) == 0 && h.mapId == mapId) return true;
+    }
+    return false;
 }

@@ -393,19 +393,26 @@ struct GW2Context {
     uint32_t mapId;
     uint32_t mapType;
 };
+// GW2 writes MumbleLink with Windows-native 2-byte wchar_t. Use an explicit
+// 16-bit type so this compiles correctly even if the toolchain were to use
+// a 4-byte wchar_t.
 struct MumbleLinkedMem {
     uint32_t uiVersion;
     uint32_t uiTick;
     float    fAvatarPosition[3];
     float    fAvatarFront[3];
-    wchar_t  name[256];
+    float    fAvatarTop[3];
+    uint16_t name[256];
     float    fCameraPosition[3];
     float    fCameraFront[3];
-    wchar_t  identity[256];
+    float    fCameraTop[3];
+    uint16_t identity[256];
     uint32_t context_len;
     uint8_t  context[256];
 };
 #pragma pack(pop)
+static_assert(sizeof(MumbleLinkedMem) == 1364,
+              "MumbleLinkedMem size must match GW2's MumbleLink layout");
 
 // ---------------------------------------------------------------------------
 // Forward declarations
@@ -438,7 +445,9 @@ static char g_SearchBuf[128]  = {};
 static int  g_FilterBait      = 0;
 static int  g_FilterTime      = 0;
 static bool g_ShowCurrentOnly = false;
+static bool g_FilterHere      = false;
 static bool g_HideCaught      = false;
+static int  g_PlayerMapId     = 0;   // updated each frame from MumbleLink
 static std::string g_FilterMap;
 static std::string g_CurrentMapName;
 
@@ -596,6 +605,13 @@ static bool FishMatchesFilter(int fishIdx) {
 
     // Map filter
     if (!g_FilterMap.empty() && g_FilterMap != std::string(f.map ? f.map : "")) return false;
+
+    // "Here" filter — fish whose region contains the player's current map.
+    if (g_FilterHere) {
+        if (g_PlayerMapId <= 0) return false;
+        if (!f.map) return false;
+        if (!MapPanel::IsMapInRegion((uint32_t)g_PlayerMapId, f.map)) return false;
+    }
 
     // Hide caught — hide fish already caught
     if (g_HideCaught && g_AchTracker.hoarded && g_AchTracker.IsCaught(fishIdx)) return false;
@@ -1357,6 +1373,13 @@ static void RenderFishDetails(int fishIdx) {
         row("Hole",       f.holeType != HoleWater::Any
                               ? HoleWaterName(f.holeType)
                               : "-");
+        {
+            int rp = GetRecommendedPower(f.map, f.holeType);
+            if (rp > 0) {
+                char buf[16]; snprintf(buf, sizeof(buf), "%d", rp);
+                row("Rec. Power", buf);
+            }
+        }
         row("Bait",       BAIT_NAMES[(int)f.bait]);
         row("Time",       TimeOfDayName(f.time));
         row("Collection", f.collection ? f.collection : "-");
@@ -1716,7 +1739,9 @@ void AddonRender() {
 
     // --- Per-frame work ---
     g_AchTracker.FlushPendingQuery();
+    g_PlayerMapId = mumbleMapId;
     g_MapPanel.ProcessReadyQueue();
+    g_MapPanel.SampleTrail(mumbleMapId, game_x, game_z);
     CastAway::IconManager::Tick();
 
     UpdateHoleDwellTimers(mumbleMapId, game_x, game_z);
@@ -1825,6 +1850,8 @@ void AddonRender() {
                 ImGui::EndCombo();
             }
             ImGui::SameLine();
+            ImGui::Checkbox("Here", &g_FilterHere);
+            ImGui::SameLine();
             ImGui::Checkbox("Hide caught", &g_HideCaught);
             ImGui::SameLine();
             if (ImGui::SmallButton("Clear")) {
@@ -1832,6 +1859,7 @@ void AddonRender() {
                 g_FilterBait      = 0;
                 g_FilterTime      = 0;
                 g_ShowCurrentOnly = false;
+                g_FilterHere      = false;
                 g_HideCaught      = false;
                 g_FilterMap.clear();
             }
@@ -1938,6 +1966,7 @@ void AddonRender() {
                         if (!gopen) continue;
 
                         ImGui::Indent();
+                        const float gCardW = floorf((ImGui::GetContentRegionAvail().x - cardGap) / 2.f);
                         int gcardCol = 0;
                         for (int fi = 0; fi < FISH_COUNT; ++fi) {
                             if (FISH_TABLE[fi].achievementId != gcol.achievementId) continue;
@@ -1952,11 +1981,11 @@ void AddonRender() {
                             ImVec2 p = ImGui::GetCursorScreenPos();
                             char cardId[32];
                             snprintf(cardId, sizeof(cardId), "##gcard%d", idx);
-                            ImGui::InvisibleButton(cardId, {cardW, cardH});
+                            ImGui::InvisibleButton(cardId, {gCardW, cardH});
                             bool cardClicked = ImGui::IsItemClicked();
                             bool hovered     = ImGui::IsItemHovered();
 
-                            float hx = p.x + cardW - 14.f;
+                            float hx = p.x + gCardW - 14.f;
                             float hy = p.y + 14.f;
                             bool heartHit     = ImGui::IsMouseHoveringRect({hx-10.f,hy-10.f},{hx+10.f,hy+10.f});
                             bool heartClicked = heartHit && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
@@ -1967,19 +1996,19 @@ void AddonRender() {
                                           ? IM_COL32( 5, 45,110,245)
                                           : hovered ? IM_COL32( 3, 32, 82,230)
                                                     : IM_COL32( 2, 20, 58,215);
-                            dl->AddRectFilled(p, {p.x+cardW, p.y+cardH}, bgCol, 4.f);
+                            dl->AddRectFilled(p, {p.x+gCardW, p.y+cardH}, bgCol, 4.f);
 
                             ImVec4 rc = RarityColor(GetFishRarity(f.itemId));
                             ImU32 rarityCol  = IM_COL32((int)(rc.x*255),(int)(rc.y*255),(int)(rc.z*255),255);
                             ImU32 rarityTint = IM_COL32((int)(rc.x*255),(int)(rc.y*255),(int)(rc.z*255), 40);
-                            dl->AddRectFilledMultiColor(p, {p.x+cardW*0.6f, p.y+cardH},
+                            dl->AddRectFilledMultiColor(p, {p.x+gCardW*0.6f, p.y+cardH},
                                                         rarityTint, IM_COL32(0,0,0,0),
                                                         IM_COL32(0,0,0,0), rarityTint);
                             dl->AddRectFilled(p, {p.x+borderSz, p.y+cardH}, rarityCol, 4.f, ImDrawCornerFlags_Left);
                             ImU32 outlineCol = (g_SelectedFish == idx)
                                                ? IM_COL32(90,143,212,200)
                                                : IM_COL32(20, 60,110,180);
-                            dl->AddRect(p, {p.x+cardW, p.y+cardH}, outlineCol, 4.f);
+                            dl->AddRect(p, {p.x+gCardW, p.y+cardH}, outlineCol, 4.f);
 
                             float ix = p.x + borderSz + pad;
                             float iy = p.y + (cardH - iconSz) * 0.5f;
@@ -1995,7 +2024,7 @@ void AddonRender() {
                             }
 
                             float tx         = ix + iconSz + pad;
-                            float tRightEdge = p.x + cardW - 26.f;
+                            float tRightEdge = p.x + gCardW - 26.f;
                             ImU32 nameCol    = IM_COL32((int)(rc.x*255),(int)(rc.y*255),(int)(rc.z*255),255);
                             dl->AddText({tx, p.y+pad}, nameCol, f.name);
                             dl->AddText({tx, p.y+pad+lineH+2.f}, IM_COL32(130,130,130,255), f.map ? f.map : "");
