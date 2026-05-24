@@ -39,6 +39,7 @@ private:
     mutable std::mutex m_mu;
     std::unordered_map<uint32_t, CollectionState> m_collections;
     time_t m_lastQueryTime = 0;
+    time_t m_retryNotBefore = 0;
 };
 
 extern AchievementTracker g_AchTracker;

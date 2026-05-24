@@ -55,16 +55,21 @@ void AchievementTracker::Shutdown() {
 // ---------------------------------------------------------------------------
 
 void AchievementTracker::FlushPendingQuery() {
+    time_t now = time(nullptr);
+
+    // Honour H&S BUSY backoff (v4 rate-limiter advice)
+    if (m_retryNotBefore != 0 && now < m_retryNotBefore) return;
+
     // Periodic re-poll: re-query every 10 minutes while H&S is active
     if (hoarded && !queryPending) {
-        time_t now = time(nullptr);
         if (m_lastQueryTime == 0 || now - m_lastQueryTime >= 600)
             queryPending = true;
     }
 
     if (!queryPending) return;
     queryPending = false;
-    m_lastQueryTime = time(nullptr);
+    m_lastQueryTime = now;
+    m_retryNotBefore = 0;
     QueryAllCollections();
 }
 
@@ -115,7 +120,8 @@ void AchievementTracker::QueryAllCollections() {
 
     if (req.id_count == 0) return;
 
-    // CRITICAL: Do NOT hold m_mu here — response arrives synchronously inside this call
+    // Network-served query: H&S v4 dispatches the response on a worker thread.
+    // Do NOT hold m_mu here — and OnHoardAchResponse must acquire its own lock.
     m_api->Events_Raise(EV_HOARD_QUERY_ACHIEVEMENT, &req);
 }
 
@@ -141,6 +147,16 @@ void AchievementTracker::OnHoardDataUpdated(void* args) {
 void AchievementTracker::OnHoardAchResponse(void* args) {
     if (!args) return;
     auto* resp = static_cast<HoardQueryAchievementResponse*>(args);
+
+    if (resp->status == HOARD_STATUS_BUSY) {
+        // Rate-limiter pushback — schedule a retry honouring the suggested wait
+        uint32_t ms = resp->retry_after_ms;
+        time_t wait = (ms == 0) ? 5 : (time_t)((ms + 999) / 1000);
+        g_AchTracker.m_retryNotBefore = time(nullptr) + wait;
+        g_AchTracker.queryPending = true;
+        delete resp;
+        return;
+    }
 
     if (resp->status != HOARD_STATUS_OK) {
         delete resp;
