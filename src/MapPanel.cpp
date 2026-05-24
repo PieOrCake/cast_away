@@ -29,12 +29,14 @@ namespace {
     static const uint32_t SHIVERPEAK_MAPS[]= { 23, 24, 26, 27, 28, 30, 31, 32 }; // Wayfarer/Snowden/etc — overlap is fine, best-match wins
     static const uint32_t MAGUUMA_MAPS[]  = { 34, 35, 39, 53, 54, 873 };
     static const uint32_t ORR_MAPS[]      = { 50, 51, 62, 65 };
+    static const uint32_t CASTORA_MAPS[]  = { 1593, 1595, 1622 }; // Starlit Weald, Shipwreck Strand, Eternity's Garden
     static const RegionMaps REGION_MAPS[] = {
         { "Kryta",                KRYTA_MAPS,     6 },
         { "Ascalon",              ASCALON_MAPS,   7 },
         { "Shiverpeak Mountains", SHIVERPEAK_MAPS,8 },
         { "Maguuma Jungle",       MAGUUMA_MAPS,   6 },
         { "Ruins of Orr",         ORR_MAPS,       4 },
+        { "Castora",              CASTORA_MAPS,   3 },
     };
 
     // Returns true if mapId belongs to the named region (multi-map regions only).
@@ -743,10 +745,9 @@ static const std::unordered_set<uint32_t> WORLD_MAP_IDS = {
     1509,1510,1517,1526,
     // Janthir Wilds
     1550,1554,1574,1575,
-    // Visions of Eternity
+    // Visions of Eternity (Castora region):
+    // 1593 Starlit Weald, 1595 Shipwreck Strand, 1622 Eternity's Garden
     1593,1595,1622,
-    // VoE / Castora
-    1593,1595,
 };
 
 void MapPanel::FetchAllWaypoints() {
